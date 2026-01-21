@@ -15,7 +15,7 @@ import json
 from ..database import get_db
 from ..models.user import User, UserRole
 from ..models.test import Division, Question, Test, TestQuestion, TestAttempt, UserAnswer
-from ..models.job import JobApplication
+from ..models.job import Job, JobApplication, JobStatus
 from ..models.message import Message
 from ..schemas.test import (
     DivisionCreate, DivisionUpdate, DivisionResponse,
@@ -970,3 +970,166 @@ async def get_candidate_profile(
             for m in messages
         ]
     }
+
+
+# ========== Job CRUD ==========
+
+@router.get("/jobs")
+async def get_jobs(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+    include_inactive: bool = False
+):
+    """Get all jobs with application counts"""
+    query = select(Job)
+    if not include_inactive:
+        query = query.where(Job.is_active == True)
+    query = query.order_by(Job.created_at.desc())
+    
+    result = await db.execute(query)
+    jobs = result.scalars().all()
+    
+    response = []
+    for job in jobs:
+        # Count applications
+        count_result = await db.execute(
+            select(func.count(JobApplication.id)).where(JobApplication.job_id == job.id)
+        )
+        application_count = count_result.scalar() or 0
+        
+        response.append({
+            "id": job.id,
+            "company_name": job.company_name,
+            "company_logo": job.company_logo,
+            "role": job.role,
+            "location": job.location,
+            "ctc": job.ctc,
+            "job_type": job.job_type,
+            "offer_type": job.offer_type.value if job.offer_type else "regular",
+            "round_date": job.round_date.isoformat() if job.round_date else None,
+            "is_active": job.is_active,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "applications": application_count
+        })
+    
+    return response
+
+
+@router.post("/jobs")
+async def create_job(
+    company_name: str,
+    role: str,
+    location: Optional[str] = None,
+    ctc: Optional[float] = None,
+    job_type: str = "Full Time",
+    offer_type: str = "regular",
+    round_date: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Create a new job posting"""
+    job = Job(
+        company_name=company_name,
+        role=role,
+        location=location,
+        ctc=ctc,
+        job_type=job_type,
+        round_date=datetime.fromisoformat(round_date) if round_date else None
+    )
+    
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    
+    return {
+        "id": job.id,
+        "company_name": job.company_name,
+        "role": job.role,
+        "location": job.location,
+        "ctc": job.ctc,
+        "job_type": job.job_type,
+        "offer_type": job.offer_type.value if job.offer_type else "regular",
+        "round_date": job.round_date.isoformat() if job.round_date else None,
+        "is_active": job.is_active,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "applications": 0
+    }
+
+
+@router.put("/jobs/{job_id}")
+async def update_job(
+    job_id: int,
+    company_name: Optional[str] = None,
+    role: Optional[str] = None,
+    location: Optional[str] = None,
+    ctc: Optional[float] = None,
+    job_type: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    round_date: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Update an existing job"""
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if company_name is not None:
+        job.company_name = company_name
+    if role is not None:
+        job.role = role
+    if location is not None:
+        job.location = location
+    if ctc is not None:
+        job.ctc = ctc
+    if job_type is not None:
+        job.job_type = job_type
+    if is_active is not None:
+        job.is_active = is_active
+    if round_date is not None:
+        job.round_date = datetime.fromisoformat(round_date)
+    
+    await db.commit()
+    await db.refresh(job)
+    
+    # Count applications
+    count_result = await db.execute(
+        select(func.count(JobApplication.id)).where(JobApplication.job_id == job.id)
+    )
+    application_count = count_result.scalar() or 0
+    
+    return {
+        "id": job.id,
+        "company_name": job.company_name,
+        "role": job.role,
+        "location": job.location,
+        "ctc": job.ctc,
+        "job_type": job.job_type,
+        "offer_type": job.offer_type.value if job.offer_type else "regular",
+        "round_date": job.round_date.isoformat() if job.round_date else None,
+        "is_active": job.is_active,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "applications": application_count
+    }
+
+
+@router.delete("/jobs/{job_id}")
+async def delete_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Delete a job (soft delete - sets is_active to False)"""
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job.is_active = False
+    await db.commit()
+    
+    return {"success": True, "message": "Job deactivated"}
+

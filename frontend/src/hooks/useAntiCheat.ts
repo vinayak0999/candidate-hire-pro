@@ -160,7 +160,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
 export function useTestTimer(durationMinutes: number, onTimeUp?: () => void) {
     const [timeRemaining, setTimeRemaining] = useState(durationMinutes * 60);
     const [isRunning, setIsRunning] = useState(false);
-    const intervalRef = useRef<NodeJS.Timeout | null>(null);
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
         if (isRunning && timeRemaining > 0) {

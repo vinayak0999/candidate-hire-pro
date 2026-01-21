@@ -257,6 +257,39 @@ export const adminApiService = {
         });
         return response.data;
     },
+
+    // Jobs
+    getJobs: async (includeInactive?: boolean) => {
+        const response = await adminApi.get('/jobs', { params: { include_inactive: includeInactive } });
+        return response.data;
+    },
+    createJob: async (data: {
+        company_name: string;
+        role: string;
+        location?: string;
+        ctc?: number;
+        job_type?: string;
+        round_date?: string;
+    }) => {
+        const response = await adminApi.post('/jobs', null, { params: data });
+        return response.data;
+    },
+    updateJob: async (jobId: number, data: {
+        company_name?: string;
+        role?: string;
+        location?: string;
+        ctc?: number;
+        job_type?: string;
+        is_active?: boolean;
+        round_date?: string;
+    }) => {
+        const response = await adminApi.put(`/jobs/${jobId}`, null, { params: data });
+        return response.data;
+    },
+    deleteJob: async (jobId: number) => {
+        const response = await adminApi.delete(`/jobs/${jobId}`);
+        return response.data;
+    },
 };
 
 export default api;

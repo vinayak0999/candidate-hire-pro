@@ -17,6 +17,8 @@ export interface User {
     solved_hard: number;
     badges_count: number;
     super_badges_count: number;
+    total_badges?: number;
+    total_certificates?: number;
     created_at: string;
 }
 

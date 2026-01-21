@@ -82,7 +82,6 @@ export default function TestResult() {
 
     const correctAnswers = result.answers.filter(a => a.is_correct).length;
     const incorrectAnswers = result.answers.filter(a => a.is_correct === false).length;
-    const unanswered = result.answers.filter(a => a.is_correct === null).length;
 
     return (
         <div className="test-result-page">

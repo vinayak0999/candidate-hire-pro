@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
 import { adminApiService } from '../../services/api';
 import {
     Search, User, Mail, Phone, Calendar, GraduationCap, Building2,
-    ChevronRight, X, Send, MessageSquare, Eye, Clock, Award, FileText,
-    CheckCircle, XCircle, MoreHorizontal
+    X, Send, MessageSquare, Eye, Clock,
+    CheckCircle, XCircle
 } from 'lucide-react';
 import './CandidatesPage.css';
 
@@ -168,7 +168,7 @@ export default function CandidatesPage() {
     const [sending, setSending] = useState(false);
 
     // Debounced search
-    const searchTimeoutRef = useRef<NodeJS.Timeout>();
+    const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     // Fetch candidates
     const fetchCandidates = useCallback(async () => {

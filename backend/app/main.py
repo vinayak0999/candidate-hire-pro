@@ -24,13 +24,15 @@ app = FastAPI(
     title=settings.app_name,
     description="Autonex Assessment Portal API",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if settings.debug else None,  # Disable docs in production
+    redoc_url="/redoc" if settings.debug else None,
 )
 
-# CORS middleware
+# CORS middleware - uses origins from environment variable
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
+    allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,9 +54,10 @@ app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 @app.get("/")
 async def root():
-    return {"message": "CDC Assessment Portal API", "status": "running"}
+    return {"message": "CDC Assessment Portal API", "status": "running", "version": "1.0.0"}
 
 
 @app.get("/health")
 async def health_check():
+    """Health check endpoint for load balancer"""
     return {"status": "healthy"}
