@@ -71,7 +71,7 @@ interface Profile {
     languages: { id: number; language: string; proficiency: string | null }[];
 }
 
-export default function CandidateProfile({ user }: ProfileProps) {
+export default function CandidateProfile({ user: _user }: ProfileProps) {
     const [profile, setProfile] = useState<Profile | null>(null);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
