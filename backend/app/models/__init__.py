@@ -10,6 +10,7 @@ from .profile import (
     SkillCategory, ProficiencyLevel, LanguageProficiency,
     profile_skills
 )
+from .notification import Notification, UserNotification, NotificationType, TargetAudience
 
 __all__ = [
     "User", "UserRole",
@@ -22,5 +23,7 @@ __all__ = [
     "CandidateProfile", "Skill", "Education", "WorkExperience", "Project",
     "Certification", "Publication", "Award", "UserLanguage",
     "SkillCategory", "ProficiencyLevel", "LanguageProficiency",
-    "profile_skills"
+    "profile_skills",
+    # Notification models
+    "Notification", "UserNotification", "NotificationType", "TargetAudience"
 ]

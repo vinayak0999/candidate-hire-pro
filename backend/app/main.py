@@ -6,7 +6,7 @@ import os
 
 from .config import get_settings
 from .database import init_db
-from .routers import auth_router, jobs_router, courses_router, assessments_router, admin_router, tests_router, profile_router
+from .routers import auth_router, jobs_router, courses_router, assessments_router, admin_router, tests_router, profile_router, notification_router
 
 settings = get_settings()
 
@@ -46,6 +46,7 @@ app.include_router(assessments_router)
 app.include_router(admin_router)
 app.include_router(tests_router)
 app.include_router(profile_router)
+app.include_router(notification_router)
 
 # Mount uploads directory for serving files
 uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")

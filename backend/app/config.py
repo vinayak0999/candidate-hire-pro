@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     pinecone_api_key: str = ""
     pinecone_index_name: str = "candidate-profiles"
     pinecone_environment: str = "us-east-1"
+    
+    # Cloudinary (media storage)
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
 
     class Config:
         env_file = ".env"

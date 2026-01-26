@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import type { User } from '../types';
+import { useState, useEffect } from 'react';
+import { jobsApi } from '../services/api';
+import type { User, Job } from '../types';
 import './Dashboard.css';
 
 interface DashboardProps {
@@ -10,6 +11,27 @@ type TabType = 'skill' | 'course' | 'jobs';
 
 export default function Dashboard({ user }: DashboardProps) {
     const [activeTab, setActiveTab] = useState<TabType>('skill');
+    const [jobs, setJobs] = useState<Job[]>([]);
+    const [loadingJobs, setLoadingJobs] = useState(false);
+
+    // Fetch jobs when jobs tab is active
+    useEffect(() => {
+        if (activeTab === 'jobs') {
+            fetchJobs();
+        }
+    }, [activeTab]);
+
+    const fetchJobs = async () => {
+        try {
+            setLoadingJobs(true);
+            const data = await jobsApi.getAll();
+            setJobs(data);
+        } catch (error) {
+            console.error('Failed to fetch jobs:', error);
+        } finally {
+            setLoadingJobs(false);
+        }
+    };
 
     const solvedEasy = user?.solved_easy || 1245;
     const solvedMedium = user?.solved_medium || 1754;
@@ -206,21 +228,44 @@ export default function Dashboard({ user }: DashboardProps) {
             )}
 
             {activeTab === 'jobs' && (
-                <div className="stats-section">
-                    <div className="stat-card">
-                        <div className="stat-card-header">
-                            <h3 className="stat-card-title">Job Applications</h3>
+                <div className="jobs-section">
+                    {loadingJobs ? (
+                        <div className="loading-jobs">Loading jobs...</div>
+                    ) : jobs.length === 0 ? (
+                        <div className="no-jobs">
+                            <span className="no-jobs-icon">📋</span>
+                            <h3>No Active Job Postings</h3>
+                            <p>Check back later for new opportunities</p>
                         </div>
-                        <div className="stat-value">8</div>
-                        <div className="stat-label">Applications Submitted</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-card-header">
-                            <h3 className="stat-card-title">Interview Scheduled</h3>
+                    ) : (
+                        <div className="jobs-grid">
+                            {jobs.map(job => (
+                                <div key={job.id} className="job-card">
+                                    <div className="job-card-header">
+                                        <div className="job-company-logo">
+                                            {job.company_name?.charAt(0) || 'A'}
+                                        </div>
+                                        <div className="job-info">
+                                            <h3 className="job-title">{job.role}</h3>
+                                            <p className="job-company">{job.company_name}</p>
+                                        </div>
+                                    </div>
+                                    <div className="job-details">
+                                        {job.location && (
+                                            <span className="job-tag">📍 {job.location}</span>
+                                        )}
+                                        {job.job_type && (
+                                            <span className="job-tag">💼 {job.job_type}</span>
+                                        )}
+                                        {job.ctc && (
+                                            <span className="job-tag">💰 {job.ctc} LPA</span>
+                                        )}
+                                    </div>
+                                    <button className="job-apply-btn">Apply Now</button>
+                                </div>
+                            ))}
                         </div>
-                        <div className="stat-value">2</div>
-                        <div className="stat-label">Upcoming Interviews</div>
-                    </div>
+                    )}
                 </div>
             )}
         </div>

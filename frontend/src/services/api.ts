@@ -245,8 +245,10 @@ export const adminApiService = {
     uploadFile: async (file: File, fileType: 'video' | 'image') => {
         const formData = new FormData();
         formData.append('file', file);
+        // Set Content-Type to undefined to remove default JSON header
+        // This lets axios auto-set multipart/form-data with proper boundary
         const response = await adminApi.post(`/upload?file_type=${fileType}`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+            headers: { 'Content-Type': undefined }
         });
         return response.data;
     },
@@ -273,6 +275,7 @@ export const adminApiService = {
         ctc?: number;
         job_type?: string;
         round_date?: string;
+        description?: string;
     }) => {
         const response = await adminApi.post('/jobs', null, { params: data });
         return response.data;
@@ -340,6 +343,87 @@ export const profileApi = {
 
     removeLanguage: async (languageId: number) => {
         const response = await api.delete(`/profile/me/languages/${languageId}`);
+        return response.data;
+    },
+};
+
+// Notifications API
+export const notificationsApi = {
+    // Candidate endpoints
+    getMyNotifications: async (unreadOnly = false, skip = 0, limit = 20) => {
+        const response = await api.get('/notifications/me', {
+            params: { unread_only: unreadOnly, skip, limit }
+        });
+        return response.data;
+    },
+
+    getUnreadCount: async (): Promise<{ unread_count: number }> => {
+        const response = await api.get('/notifications/unread-count');
+        return response.data;
+    },
+
+    markAsRead: async (notificationId: number) => {
+        const response = await api.put(`/notifications/${notificationId}/read`);
+        return response.data;
+    },
+
+    markAllAsRead: async () => {
+        const response = await api.put('/notifications/read-all');
+        return response.data;
+    },
+
+    // Admin endpoints
+    createNotification: async (data: {
+        title: string;
+        message: string;
+        notification_type?: string;
+        target_audience?: string;
+        target_value?: string;
+        expires_at?: string;
+    }) => {
+        const response = await api.post('/notifications/admin/create', data);
+        return response.data;
+    },
+
+    getAllNotifications: async (skip = 0, limit = 50) => {
+        const response = await api.get('/notifications/admin/list', {
+            params: { skip, limit }
+        });
+        return response.data;
+    },
+
+    deleteNotification: async (notificationId: number) => {
+        const response = await api.delete(`/notifications/admin/${notificationId}`);
+        return response.data;
+    },
+
+    toggleNotification: async (notificationId: number) => {
+        const response = await api.put(`/notifications/admin/${notificationId}/toggle`);
+        return response.data;
+    },
+};
+
+// Personal Messages API (admin-to-candidate direct messages)
+export const messagesApi = {
+    getMyMessages: async (unreadOnly = false, skip = 0, limit = 20) => {
+        const response = await api.get('/notifications/messages/me', {
+            params: { unread_only: unreadOnly, skip, limit }
+        });
+        return response.data;
+    },
+
+    getUnreadCount: async (): Promise<{ unread_count: number }> => {
+        const response = await api.get('/notifications/messages/unread-count');
+        return response.data;
+    },
+
+    markAsRead: async (messageId: number) => {
+        const response = await api.put(`/notifications/messages/${messageId}/read`);
+        return response.data;
+    },
+
+    markAllAsRead: async () => {
+        const response = await api.put('/notifications/messages/read-all');
         return response.data;
     },
 };

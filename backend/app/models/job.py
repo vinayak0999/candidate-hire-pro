@@ -28,6 +28,7 @@ class Job(Base):
     location = Column(String(255), nullable=True)
     ctc = Column(Float, nullable=True)  # in LPA
     job_type = Column(String(50), default="Full Time")
+    description = Column(String(5000), nullable=True)  # Job description
     offer_type = Column(SQLEnum(OfferType), default=OfferType.REGULAR)
     round_date = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)

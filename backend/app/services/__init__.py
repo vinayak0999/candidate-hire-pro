@@ -25,6 +25,15 @@ from .vector_search import (
     vector_search_service,
     extract_skills_from_query
 )
+from .cloudinary_service import (
+    upload_video,
+    upload_image,
+    upload_document,
+    delete_media,
+    upload_test_proctoring_video,
+    upload_test_screenshot,
+    is_cloudinary_available
+)
 
 __all__ = [
     # Auth
@@ -49,5 +58,13 @@ __all__ = [
     "deduplicate_skills",
     # Vector search
     "vector_search_service",
-    "extract_skills_from_query"
+    "extract_skills_from_query",
+    # Cloudinary
+    "upload_video",
+    "upload_image",
+    "upload_document",
+    "delete_media",
+    "upload_test_proctoring_video",
+    "upload_test_screenshot",
+    "is_cloudinary_available"
 ]

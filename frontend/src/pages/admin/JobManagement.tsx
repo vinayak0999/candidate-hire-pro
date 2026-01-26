@@ -40,7 +40,8 @@ export default function JobManagement() {
         company: 'Autonex AI',
         location: '',
         type: 'Full Time',
-        ctc: ''
+        ctc: '',
+        description: ''
     });
     const [selectedDivision, setSelectedDivision] = useState<number | null>(null);
     const [selectedAssessments, setSelectedAssessments] = useState<number[]>([]);
@@ -117,7 +118,8 @@ export default function JobManagement() {
                 role: formData.title,
                 location: formData.location || undefined,
                 ctc: formData.ctc ? parseFloat(formData.ctc) : undefined,
-                job_type: formData.type
+                job_type: formData.type,
+                description: formData.description || undefined
             });
 
             setShowModal(false);
@@ -129,7 +131,7 @@ export default function JobManagement() {
     };
 
     const resetForm = () => {
-        setFormData({ title: '', company: 'Autonex AI', location: '', type: 'Full Time', ctc: '' });
+        setFormData({ title: '', company: 'Autonex AI', location: '', type: 'Full Time', ctc: '', description: '' });
         setSelectedDivision(null);
         setSelectedAssessments([]);
     };
@@ -286,6 +288,16 @@ export default function JobManagement() {
                                             <option value="Internship">Internship</option>
                                         </select>
                                     </div>
+                                </div>
+                                <div className="form-group" style={{ marginTop: '16px' }}>
+                                    <label>Job Description</label>
+                                    <textarea
+                                        value={formData.description}
+                                        onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
+                                        placeholder="Enter a detailed description of the job role, responsibilities, and requirements..."
+                                        rows={4}
+                                        style={{ resize: 'vertical' }}
+                                    />
                                 </div>
                             </div>
 

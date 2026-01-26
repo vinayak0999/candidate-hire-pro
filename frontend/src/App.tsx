@@ -16,6 +16,7 @@ import Jobs from './pages/Jobs';
 import Courses from './pages/Courses';
 import Assessments from './pages/Assessments';
 import Profile from './pages/Profile';
+import Notifications from './pages/Notifications';
 
 // Test Components
 import TestsList from './pages/test/TestsList';
@@ -30,6 +31,8 @@ import TestManagement from './pages/admin/TestManagement';
 import JobManagement from './pages/admin/JobManagement';
 import CandidatesPage from './pages/admin/CandidatesPage';
 import ReportsPage from './pages/admin/ReportsPage';
+import AdminAnnouncements from './pages/admin/AdminAnnouncements';
+import DivisionManagement from './pages/admin/DivisionManagement';
 
 
 import './index.css';
@@ -144,6 +147,7 @@ function App() {
                         <Route path="/company-tests" element={<Assessments />} />
                         <Route path="/profile" element={<Profile user={user} />} />
                         <Route path="/ide" element={<div className="dashboard"><h1>Open IDE</h1><p>IDE integration coming soon...</p></div>} />
+                        <Route path="/notifications" element={<Notifications />} />
                         <Route path="/tests" element={<TestsList />} />
                     </Route>
                 ) : null}
@@ -169,6 +173,8 @@ function App() {
                         <Route path="jobs" element={<JobManagement />} />
                         <Route path="candidates" element={<CandidatesPage />} />
                         <Route path="reports" element={<ReportsPage />} />
+                        <Route path="announcements" element={<AdminAnnouncements />} />
+                        <Route path="divisions" element={<DivisionManagement />} />
                     </Route>
                 ) : (
                     <Route path="/admin/*" element={<Navigate to="/admin/login" />} />

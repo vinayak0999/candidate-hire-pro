@@ -68,7 +68,7 @@ async def login(
         )
     
     # Check if email is verified (skip for admin users)
-    if not user.is_verified and user.role.value != "admin":
+    if not user.is_verified and user.role.value != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email not verified. Please verify your email first."

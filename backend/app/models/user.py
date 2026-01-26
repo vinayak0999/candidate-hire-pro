@@ -6,8 +6,8 @@ import enum
 
 
 class UserRole(str, enum.Enum):
-    STUDENT = "student"
-    ADMIN = "admin"
+    STUDENT = "STUDENT"
+    ADMIN = "ADMIN"
 
 
 class User(Base):
@@ -48,3 +48,5 @@ class User(Base):
     
     # Relationships
     profile = relationship("CandidateProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    notifications = relationship("UserNotification", back_populates="user", cascade="all, delete-orphan")
+    created_notifications = relationship("Notification", back_populates="creator")
