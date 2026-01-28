@@ -16,12 +16,14 @@ class JobBase(BaseModel):
 class JobCreate(JobBase):
     company_logo: Optional[str] = None
     round_date: Optional[datetime] = None
+    test_id: Optional[int] = None
 
 
 class JobResponse(JobBase):
     id: int
     company_logo: Optional[str] = None
     round_date: Optional[datetime] = None
+    test_id: Optional[int] = None
     is_active: bool
     created_at: datetime
     application_status: Optional[JobStatus] = None

@@ -241,39 +241,56 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
 /**
  * Timer Hook for test duration
  */
-export function useTestTimer(durationMinutes: number, onTimeUp?: () => void) {
+export function useTestTimer(durationMinutes: number, onTimeUp?: () => void, startTime?: string) {
     const [timeRemaining, setTimeRemaining] = useState(durationMinutes * 60);
     const [isRunning, setIsRunning] = useState(false);
-    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Sync timer with duration prop changes (e.g. after data load)
+    // Calculate remaining time relative to server start time
+    const calculateRemaining = useCallback(() => {
+        if (!startTime) return durationMinutes * 60;
+
+        const start = new Date(startTime).getTime();
+        const now = new Date().getTime();
+        const elapsedSeconds = Math.floor((now - start) / 1000);
+        const totalSeconds = durationMinutes * 60;
+
+        return Math.max(0, totalSeconds - elapsedSeconds);
+    }, [durationMinutes, startTime]);
+
+    // Initialize/Sync timer
     useEffect(() => {
-        setTimeRemaining(durationMinutes * 60);
-    }, [durationMinutes]);
+        setTimeRemaining(calculateRemaining());
+    }, [calculateRemaining]);
 
     useEffect(() => {
         if (isRunning && timeRemaining > 0) {
-            intervalRef.current = setInterval(() => {
-                setTimeRemaining(prev => {
-                    if (prev <= 1) {
+            const interval = setInterval(() => {
+                // Recalculate from start time every tick to avoid drift and handle backgrounding
+                if (startTime) {
+                    const remaining = calculateRemaining();
+                    setTimeRemaining(remaining);
+                    if (remaining <= 0) {
                         setIsRunning(false);
                         onTimeUp?.();
-                        return 0;
                     }
-                    return prev - 1;
-                });
+                } else {
+                    setTimeRemaining(prev => {
+                        if (prev <= 1) {
+                            setIsRunning(false);
+                            onTimeUp?.();
+                            return 0;
+                        }
+                        return prev - 1;
+                    });
+                }
             }, 1000);
+            return () => clearInterval(interval);
         }
-
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
-        };
-    }, [isRunning, timeRemaining, onTimeUp]);
+    }, [isRunning, timeRemaining, onTimeUp, startTime, calculateRemaining]);
 
     const start = useCallback(() => setIsRunning(true), []);
     const pause = useCallback(() => setIsRunning(false), []);
+    // Reset not really applicable for strict server exams, but keeping for compatibility
     const reset = useCallback(() => {
         setTimeRemaining(durationMinutes * 60);
         setIsRunning(false);

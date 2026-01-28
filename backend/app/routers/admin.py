@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, timezone
 import os
 import uuid
@@ -88,12 +88,11 @@ async def get_dashboard_stats(
 async def get_divisions(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-    include_inactive: bool = False
+    include_inactive: bool = True  # Always show all divisions
 ):
     """Get all divisions"""
     query = select(Division)
-    if not include_inactive:
-        query = query.where(Division.is_active == True)
+    # Show all divisions regardless of active status
     query = query.order_by(Division.name)
     
     result = await db.execute(query)
@@ -112,6 +111,7 @@ async def get_divisions(
             name=div.name,
             description=div.description,
             is_active=div.is_active,
+            documents=div.documents,
             created_at=div.created_at,
             test_count=test_count
         ))
@@ -136,6 +136,7 @@ async def create_division(
         name=division.name,
         description=division.description,
         is_active=division.is_active,
+        documents=division.documents,
         created_at=division.created_at,
         test_count=0
     )
@@ -174,6 +175,7 @@ async def update_division(
         name=division.name,
         description=division.description,
         is_active=division.is_active,
+        documents=division.documents,
         created_at=division.created_at,
         test_count=test_count_result.scalar() or 0
     )
@@ -196,6 +198,75 @@ async def delete_division(
     await db.commit()
     
     return {"message": "Division deleted"}
+
+
+@router.put("/divisions/{division_id}/documents")
+async def update_division_documents(
+    division_id: int,
+    documents: List[Dict[str, str]],
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Update shared documents for a division (used by Agent Analysis questions)"""
+    result = await db.execute(select(Division).where(Division.id == division_id))
+    division = result.scalar_one_or_none()
+    
+    if not division:
+        raise HTTPException(status_code=404, detail="Division not found")
+    
+    division.documents = documents
+    await db.commit()
+    
+    return {"message": "Documents updated", "documents": documents}
+
+
+@router.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    file_type: str = "document",
+    admin: User = Depends(require_admin)
+):
+    """
+    Upload a file to Supabase Storage.
+    """
+    import httpx
+    
+    contents = await file.read()
+    filename = file.filename or f"upload_{uuid.uuid4().hex}"
+    
+    # All uploads go to Supabase Storage - use service_role key for write access
+    supabase_url = os.getenv("SUPABASE_URL")
+    # Service role key (has write permissions)
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise HTTPException(status_code=500, detail="Supabase configuration missing")
+    
+    bucket = "division-docs"
+    safe_filename = filename.replace(" ", "_")
+    file_path = f"{file_type}/{uuid.uuid4().hex}_{safe_filename}"
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{supabase_url}/storage/v1/object/{bucket}/{file_path}",
+                headers={
+                    "Authorization": f"Bearer {supabase_key}",
+                    "apikey": supabase_key,
+                    "Content-Type": file.content_type or "application/octet-stream"
+                },
+                content=contents
+            )
+            
+            if response.status_code in [200, 201]:
+                public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{file_path}"
+                return {"url": public_url}
+            else:
+                raise HTTPException(status_code=500, detail=f"Upload failed: {response.text}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Upload timeout - file too large")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 # ========== Question CRUD ==========
@@ -242,6 +313,8 @@ async def create_question(
         passage=data.passage,
         sentences=data.sentences,
         annotation_data=data.annotation_data,
+        html_content=data.html_content,
+        documents=data.documents,
         marks=data.marks,
         difficulty=data.difficulty,
         tags=data.tags
@@ -341,6 +414,7 @@ async def get_tests(
             text_annotation_count=test.text_annotation_count,
             image_annotation_count=test.image_annotation_count,
             video_annotation_count=test.video_annotation_count,
+            agent_analysis_count=test.agent_analysis_count,
             is_active=test.is_active,
             is_published=test.is_published,
             created_at=test.created_at
@@ -367,6 +441,7 @@ async def generate_test(
     video_count = 0
     reading_count = 0
     jumble_count = 0
+    agent_analysis_count = 0
     
     # Handle new sections format
     if data.sections:
@@ -388,6 +463,8 @@ async def generate_test(
                     text_count = section_total  # Map to text_annotation for backwards compat
                 elif section_type == 'jumble':
                     jumble_count = section_total
+                elif section_type == 'agent_analysis':
+                    agent_analysis_count = section_total
     else:
         # Legacy format handling
         if data.mcq and data.mcq.enabled:
@@ -419,7 +496,10 @@ async def generate_test(
         mcq_count=mcq_count,
         text_annotation_count=text_count,
         image_annotation_count=image_count,
-        video_annotation_count=video_count
+        video_annotation_count=video_count,
+        agent_analysis_count=agent_analysis_count,
+        enable_tab_switch_detection=data.enable_tab_switch_detection,
+        max_tab_switches_allowed=data.max_tab_switches_allowed
     )
     
     db.add(test)
@@ -448,6 +528,7 @@ async def generate_test(
         text_annotation_count=test.text_annotation_count,
         image_annotation_count=test.image_annotation_count,
         video_annotation_count=test.video_annotation_count,
+        agent_analysis_count=test.agent_analysis_count,
         is_active=test.is_active,
         is_published=test.is_published,
         created_at=test.created_at
@@ -495,6 +576,7 @@ async def update_test(
         text_annotation_count=test.text_annotation_count,
         image_annotation_count=test.image_annotation_count,
         video_annotation_count=test.video_annotation_count,
+        agent_analysis_count=test.agent_analysis_count,
         is_active=test.is_active,
         is_published=test.is_published,
         created_at=test.created_at
@@ -518,6 +600,98 @@ async def publish_test(
     await db.commit()
     
     return {"message": "Test published"}
+
+
+@router.delete("/tests/{test_id}")
+async def delete_test(
+    test_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Delete a test (soft delete - sets is_active to False)"""
+    result = await db.execute(select(Test).where(Test.id == test_id))
+    test = result.scalar_one_or_none()
+    
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    
+    test.is_active = False
+    await db.commit()
+    
+    return {"success": True, "message": "Test deleted"}
+
+@router.get("/tests/{test_id}/preview")
+async def get_test_preview(
+    test_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Get test details with all questions for preview"""
+    result = await db.execute(select(Test).where(Test.id == test_id))
+    test = result.scalar_one_or_none()
+    
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    
+    # Get division name
+    division_name = None
+    if test.division_id:
+        div_result = await db.execute(
+            select(Division.name).where(Division.id == test.division_id)
+        )
+        division_name = div_result.scalar()
+    
+    # Get questions linked to this test via TestQuestion
+    questions_result = await db.execute(
+        select(Question)
+        .join(TestQuestion, Question.id == TestQuestion.question_id)
+        .where(TestQuestion.test_id == test_id)
+        .where(Question.is_active == True)
+        .order_by(TestQuestion.order)
+    )
+    linked_questions = questions_result.scalars().all()
+    
+    # If no linked questions, get sample questions based on test configuration
+    if not linked_questions:
+        from .tests import _get_sample_questions
+        linked_questions = await _get_sample_questions(db, test)
+    
+    # Format questions for response
+    questions_data = [
+        {
+            "id": q.id,
+            "question_type": q.question_type,
+            "question_text": q.question_text,
+            "options": q.options,
+            "correct_answer": q.correct_answer,
+            "media_url": q.media_url,
+            "passage": q.passage,
+            "sentences": q.sentences,
+            "marks": q.marks,
+            "difficulty": q.difficulty,
+        }
+        for q in linked_questions
+    ]
+    
+    return {
+        "id": test.id,
+        "title": test.title,
+        "description": test.description,
+        "division_id": test.division_id,
+        "division_name": division_name,
+        "duration_minutes": test.duration_minutes,
+        "total_questions": test.total_questions,
+        "total_marks": test.total_marks,
+        "passing_marks": test.passing_marks,
+        "mcq_count": test.mcq_count,
+        "text_annotation_count": test.text_annotation_count,
+        "image_annotation_count": test.image_annotation_count,
+        "video_annotation_count": test.video_annotation_count,
+        "is_published": test.is_published,
+        "enable_tab_switch_detection": test.enable_tab_switch_detection,
+        "max_tab_switches_allowed": test.max_tab_switches_allowed,
+        "questions": questions_data
+    }
 
 
 # ========== Candidate Management ==========
@@ -670,6 +844,139 @@ async def get_all_attempts(
     ]
 
 
+# ========== Test Results (for grading) ==========
+
+@router.get("/test-results")
+async def get_test_results(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+    job_id: Optional[int] = None
+):
+    """Get all completed test attempts with user, job, and score info"""
+    
+    # Get completed attempts
+    query = select(TestAttempt).where(
+        TestAttempt.status == "completed"
+    ).order_by(TestAttempt.completed_at.desc())
+    
+    result = await db.execute(query)
+    attempts = result.scalars().all()
+    
+    if not attempts:
+        return []
+    
+    # Get user info separately
+    user_ids = list(set(a.user_id for a in attempts))
+    users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
+    users = {u.id: u for u in users_result.scalars().all()}
+    
+    # Get test info
+    test_ids = list(set(a.test_id for a in attempts))
+    tests_result = await db.execute(select(Test).where(Test.id.in_(test_ids)))
+    tests = {t.id: t for t in tests_result.scalars().all()}
+    
+    # Get jobs linked to tests
+    from ..models.job import Job
+    jobs_result = await db.execute(select(Job).where(Job.test_id.in_(test_ids)))
+    jobs_by_test = {j.test_id: j for j in jobs_result.scalars().all()}
+    
+    # Filter by job if specified
+    if job_id:
+        job_test_ids = [tid for tid, j in jobs_by_test.items() if j.id == job_id]
+        attempts = [a for a in attempts if a.test_id in job_test_ids]
+    
+    # Check for file answers
+    attempt_ids = [a.id for a in attempts]
+    if attempt_ids:
+        answers_result = await db.execute(
+            select(UserAnswer).where(
+                UserAnswer.attempt_id.in_(attempt_ids),
+                UserAnswer.answer_text.like("FILE:%")
+            )
+        )
+        file_answers = {a.attempt_id: a.answer_text for a in answers_result.scalars().all()}
+    else:
+        file_answers = {}
+    
+    results = []
+    for a in attempts:
+        user = users.get(a.user_id)
+        test = tests.get(a.test_id)
+        job = jobs_by_test.get(a.test_id)
+        
+        results.append({
+            "id": a.id,
+            "user_id": a.user_id,
+            "user_name": user.name if user else "Unknown",
+            "user_email": user.email if user else "",
+            "test_id": a.test_id,
+            "test_title": test.title if test else f"Test #{a.test_id}",
+            "job_id": job.id if job else None,
+            "job_title": job.role if job else None,
+            "company": job.company_name if job else None,
+            "score": a.score or 0,
+            "max_score": a.total_marks or 100,
+            "percentage": a.percentage or 0,
+            "status": "passed" if (a.percentage or 0) >= 50 else "failed",
+            "completed_at": a.completed_at.isoformat() if a.completed_at else None,
+            "tab_switches": a.tab_switches or 0,
+            "file_answer": file_answers.get(a.id)
+        })
+    
+    return results
+
+
+@router.get("/test-results/{result_id}/download")
+async def download_answer_file(
+    result_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Download the file answer for a test result"""
+    from fastapi.responses import FileResponse
+    
+    # Find file answer for this attempt
+    answer = await db.execute(
+        select(UserAnswer).where(
+            UserAnswer.attempt_id == result_id,
+            UserAnswer.answer_text.like("FILE:%")
+        )
+    )
+    answer = answer.scalar_one_or_none()
+    
+    if not answer:
+        raise HTTPException(status_code=404, detail="No file answer found")
+    
+    filepath = answer.answer_text.replace("FILE:", "")
+    
+    # If it's a remote URL (Supabase), redirect to it
+    if filepath.startswith("http"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=filepath)
+
+    # Handle both relative and absolute paths
+    if not os.path.isabs(filepath):
+        # If relative path, resolve it relative to backend directory
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        filepath = os.path.join(backend_dir, filepath)
+    
+    if not os.path.exists(filepath):
+        # Try looking in the uploads/answers directory as fallback
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        filename = os.path.basename(answer.answer_text.replace("FILE:", ""))
+        fallback_path = os.path.join(backend_dir, "uploads", "answers", filename)
+        if os.path.exists(fallback_path):
+            filepath = fallback_path
+        else:
+             raise HTTPException(status_code=404, detail=f"File not found on server: {filepath}")
+
+    return FileResponse(
+        filepath,
+        filename=os.path.basename(filepath),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
 # ========== File Upload ==========
 
 # Ensure uploads directory exists (fallback for local storage)
@@ -679,17 +986,19 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Allowed file extensions (more reliable than content-type)
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+ALLOWED_HTML_EXTENSIONS = {".html", ".htm"}
+ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx"}
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 
 
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
-    file_type: str = Query(..., description="Type: video or image"),
+    file_type: str = Query(..., description="Type: video, image, html, or document"),
     admin: User = Depends(require_admin)
 ):
     """
-    Upload a video or image file.
+    Upload a video, image, HTML, or document file.
     Uses Cloudinary for scalable CDN delivery (handles 10k+ concurrent users).
     Falls back to local storage if Cloudinary not configured.
     
@@ -721,6 +1030,10 @@ async def upload_file(
             "video/mp4": ".mp4",
             "video/webm": ".webm",
             "video/quicktime": ".mov",
+            "text/html": ".html",
+            "application/pdf": ".pdf",
+            "application/msword": ".doc",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
             "application/octet-stream": ""  # Unknown, check file_type param
         }
         ext = content_type_map.get(content_type.lower(), "")
@@ -728,6 +1041,10 @@ async def upload_file(
             ext = ".png"  # Default for images (e.g., screenshots, pasted images)
         elif not ext and file_type == "video":
             ext = ".mp4"  # Default for videos
+        elif not ext and file_type == "html":
+            ext = ".html"  # Default for HTML
+        elif not ext and file_type == "document":
+            ext = ".pdf"  # Default for documents
     
     # Validate extension
     if file_type == "video":
@@ -742,8 +1059,20 @@ async def upload_file(
                 status_code=400, 
                 detail=f"Invalid image format '{ext}'. Allowed: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
             )
+    elif file_type == "html":
+        if ext and ext not in ALLOWED_HTML_EXTENSIONS:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid HTML format '{ext}'. Allowed: {', '.join(ALLOWED_HTML_EXTENSIONS)}"
+            )
+    elif file_type == "document":
+        if ext and ext not in ALLOWED_DOCUMENT_EXTENSIONS:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid document format '{ext}'. Allowed: {', '.join(ALLOWED_DOCUMENT_EXTENSIONS)}"
+            )
     else:
-        raise HTTPException(status_code=400, detail="file_type must be 'video' or 'image'")
+        raise HTTPException(status_code=400, detail="file_type must be 'video', 'image', 'html', or 'document'")
     
     # Read file content with size check
     try:
@@ -767,15 +1096,32 @@ async def upload_file(
             file_stream = io.BytesIO(content)
             
             if file_type == "video":
+                from ..services.cloudinary_service import upload_video
                 result = await upload_video(
                     file_stream, 
                     folder="hiring-pro/test-media/videos"
                 )
-            else:
+            elif file_type == "image":
                 result = await upload_image(
                     file_stream, 
                     folder="hiring-pro/test-media/images"
                 )
+            elif file_type == "html":
+                from ..services.cloudinary_service import upload_document
+                result = await upload_document(
+                    file_stream, 
+                    folder="hiring-pro/test-media/html",
+                    filename=filename
+                )
+            elif file_type == "document":
+                from ..services.cloudinary_service import upload_document
+                result = await upload_document(
+                    file_stream, 
+                    folder="hiring-pro/test-media/documents",
+                    filename=filename
+                )
+            else:
+                result = None
             
             if result:
                 return {
@@ -1104,6 +1450,7 @@ async def create_job(
     offer_type: str = "regular",
     round_date: Optional[str] = None,
     description: Optional[str] = None,
+    test_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
@@ -1114,8 +1461,10 @@ async def create_job(
         location=location,
         ctc=ctc,
         job_type=job_type,
+        offer_type=offer_type,
         description=description,
-        round_date=datetime.fromisoformat(round_date) if round_date else None
+        round_date=datetime.fromisoformat(round_date) if round_date else None,
+        test_id=test_id
     )
     
     db.add(job)
@@ -1131,6 +1480,7 @@ async def create_job(
         "job_type": job.job_type,
         "offer_type": job.offer_type.value if job.offer_type else "regular",
         "round_date": job.round_date.isoformat() if job.round_date else None,
+        "test_id": job.test_id,
         "is_active": job.is_active,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "applications": 0
@@ -1147,6 +1497,7 @@ async def update_job(
     job_type: Optional[str] = None,
     is_active: Optional[bool] = None,
     round_date: Optional[str] = None,
+    test_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
@@ -1171,6 +1522,8 @@ async def update_job(
         job.is_active = is_active
     if round_date is not None:
         job.round_date = datetime.fromisoformat(round_date)
+    if test_id is not None:
+        job.test_id = test_id
     
     await db.commit()
     await db.refresh(job)
@@ -1190,6 +1543,7 @@ async def update_job(
         "job_type": job.job_type,
         "offer_type": job.offer_type.value if job.offer_type else "regular",
         "round_date": job.round_date.isoformat() if job.round_date else None,
+        "test_id": job.test_id,
         "is_active": job.is_active,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "applications": application_count

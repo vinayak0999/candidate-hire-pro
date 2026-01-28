@@ -24,6 +24,7 @@ class DivisionResponse(BaseModel):
     name: str
     description: Optional[str] = None
     is_active: bool
+    documents: Optional[List[Dict[str, str]]] = None  # Shared Agent Analysis docs
     created_at: datetime
     test_count: Optional[int] = 0
 
@@ -34,7 +35,7 @@ class DivisionResponse(BaseModel):
 # ========== Question Schemas ==========
 
 class QuestionCreate(BaseModel):
-    question_type: str = "mcq"  # video, image, mcq, jumble, reading
+    question_type: str = "mcq"  # video, image, mcq, jumble, reading, agent_analysis
     question_text: str
     division_id: Optional[int] = None  # Division this question belongs to
     options: Optional[List[str]] = None  # For MCQ
@@ -42,6 +43,8 @@ class QuestionCreate(BaseModel):
     media_url: Optional[str] = None  # For Video/Image
     passage: Optional[str] = None  # For Reading Comprehension
     sentences: Optional[List[str]] = None  # For Jumble-Tumble (correct order)
+    html_content: Optional[str] = None  # For Agent Analysis (iframe content)
+    documents: Optional[List[Dict[str, str]]] = None  # For Agent Analysis [{id, title, content}]
     annotation_data: Optional[Any] = None
     marks: float = 1.0
     difficulty: str = "medium"
@@ -86,6 +89,10 @@ class QuestionForTest(BaseModel):
     question_text: str
     options: Optional[List[str]] = None
     media_url: Optional[str] = None
+    passage: Optional[str] = None  # For reading questions
+    sentences: Optional[List[str]] = None  # For jumble questions (shuffled)
+    html_content: Optional[str] = None  # For Agent Analysis
+    documents: Optional[List[Dict[str, Any]]] = None  # For Agent Analysis
     marks: float
 
     class Config:
@@ -125,6 +132,10 @@ class TestGenerateRequest(BaseModel):
     text_annotation: Optional[TestModuleConfig] = None
     image_annotation: Optional[TestModuleConfig] = None
     video_annotation: Optional[TestModuleConfig] = None
+    
+    # Anti-cheat config
+    enable_tab_switch_detection: bool = True
+    max_tab_switches_allowed: int = 3
 
 
 class TestCreate(BaseModel):
@@ -133,6 +144,8 @@ class TestCreate(BaseModel):
     division_id: Optional[int] = None
     duration_minutes: int = 60
     passing_marks: float = 0
+    enable_tab_switch_detection: bool = True
+    max_tab_switches_allowed: int = 3
 
 
 class TestUpdate(BaseModel):
@@ -143,6 +156,8 @@ class TestUpdate(BaseModel):
     passing_marks: Optional[float] = None
     is_active: Optional[bool] = None
     is_published: Optional[bool] = None
+    enable_tab_switch_detection: Optional[bool] = None
+    max_tab_switches_allowed: Optional[int] = None
 
 
 class TestResponse(BaseModel):
@@ -159,9 +174,12 @@ class TestResponse(BaseModel):
     text_annotation_count: int
     image_annotation_count: int
     video_annotation_count: int
+    agent_analysis_count: int = 0
     is_active: bool
     is_published: bool
     created_at: datetime
+    enable_tab_switch_detection: bool = True
+    max_tab_switches_allowed: int = 3
 
     class Config:
         from_attributes = True
@@ -182,6 +200,7 @@ class SubmitAnswerRequest(BaseModel):
 
 class CompleteTestRequest(BaseModel):
     attempt_id: int
+    tab_switches: Optional[int] = 0
 
 
 class TestAttemptResponse(BaseModel):
@@ -213,6 +232,8 @@ class TestSessionResponse(BaseModel):
     total_questions: int
     questions: List[QuestionForTest]
     started_at: datetime
+    enable_tab_switch_detection: bool = True
+    max_tab_switches_allowed: int = 3
 
 
 class TestResultResponse(BaseModel):

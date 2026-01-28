@@ -41,6 +41,7 @@ async def get_all_jobs(
             "job_type": job.job_type,
             "offer_type": job.offer_type,
             "round_date": job.round_date,
+            "test_id": job.test_id,
             "is_active": job.is_active,
             "created_at": job.created_at,
             "application_status": applications.get(job.id)
@@ -76,6 +77,7 @@ async def get_my_jobs(
             "job_type": job.job_type,
             "offer_type": job.offer_type,
             "round_date": job.round_date,
+            "test_id": job.test_id,
             "is_active": job.is_active,
             "created_at": job.created_at,
             "application_status": application.status
@@ -122,10 +124,36 @@ async def apply_to_job(
         job_type=job.job_type,
         offer_type=job.offer_type,
         round_date=job.round_date,
+        test_id=job.test_id,
         is_active=job.is_active,
         created_at=job.created_at,
         application_status=JobStatus.APPLIED
     )
+
+
+@router.post("/{job_id}/start-assessment")
+async def start_assessment(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Start assessment for a job"""
+    # Check job exists
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job or not job.test_id:
+        raise HTTPException(status_code=404, detail="Assessment not found for this job")
+        
+    # Check if applied
+    app_result = await db.execute(
+        select(JobApplication)
+        .where(JobApplication.user_id == current_user.id)
+        .where(JobApplication.job_id == job_id)
+    )
+    if not app_result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Must apply to job first")
+        
+    return {"test_id": job.test_id}
 
 
 @router.get("/stats", response_model=JobStats)

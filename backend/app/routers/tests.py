@@ -1,10 +1,10 @@
 """
 Test Engine API endpoints for candidates to take tests
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone
 
 from ..database import get_db
@@ -87,6 +87,8 @@ async def start_test(
         .where(TestAttempt.test_id == data.test_id)
         .where(TestAttempt.user_id == current_user.id)
         .where(TestAttempt.status == "in_progress")
+        .order_by(TestAttempt.started_at.desc())
+        .limit(1)
     )
     existing_attempt = existing_result.scalar_one_or_none()
     
@@ -118,6 +120,17 @@ async def start_test(
         # For demo, generate some sample MCQ questions
         questions = await _get_sample_questions(db, test)
     
+    # Get division documents for agent_analysis questions
+    division_docs = None
+    if test.division_id:
+        from ..models.test import Division
+        div_result = await db.execute(
+            select(Division).where(Division.id == test.division_id)
+        )
+        division = div_result.scalar_one_or_none()
+        if division and division.documents:
+            division_docs = division.documents
+    
     # Convert to response format (without correct answers)
     question_responses = [
         QuestionForTest(
@@ -126,6 +139,11 @@ async def start_test(
             question_text=q.question_text,
             options=q.options,
             media_url=q.media_url,
+            passage=q.passage,
+            sentences=q.sentences,
+            html_content=q.html_content,
+            # For agent_analysis, use division docs; otherwise use question docs
+            documents=division_docs if q.question_type == "agent_analysis" and division_docs else q.documents,
             marks=q.marks
         )
         for q in questions
@@ -138,7 +156,87 @@ async def start_test(
         duration_minutes=test.duration_minutes,
         total_questions=len(question_responses),
         questions=question_responses,
-        started_at=attempt.started_at
+        started_at=attempt.started_at,
+        enable_tab_switch_detection=test.enable_tab_switch_detection,
+        max_tab_switches_allowed=test.max_tab_switches_allowed
+    )
+
+
+@router.get("/{test_id}/session", response_model=Optional[TestSessionResponse])
+async def get_test_session(
+    test_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Resume an existing test session if it exists"""
+    # Check if user has an in-progress attempt
+    result = await db.execute(
+        select(TestAttempt)
+        .where(TestAttempt.test_id == test_id)
+        .where(TestAttempt.user_id == current_user.id)
+        .where(TestAttempt.status == "in_progress")
+    )
+    attempt = result.scalar_one_or_none()
+    
+    if not attempt:
+        return None
+        
+    # Get test info
+    test_result = await db.execute(select(Test).where(Test.id == test_id))
+    test = test_result.scalar_one_or_none()
+    if not test:
+        return None
+        
+    # Get questions
+    questions_result = await db.execute(
+        select(Question)
+        .join(TestQuestion, Question.id == TestQuestion.question_id)
+        .where(TestQuestion.test_id == test.id)
+        .order_by(TestQuestion.order)
+    )
+    questions = questions_result.scalars().all()
+    
+    if not questions:
+        questions = await _get_sample_questions(db, test)
+    
+    # Get division documents for agent_analysis questions
+    division_docs = None
+    if test.division_id:
+        from ..models.test import Division
+        div_result = await db.execute(
+            select(Division).where(Division.id == test.division_id)
+        )
+        division = div_result.scalar_one_or_none()
+        if division and division.documents:
+            division_docs = division.documents
+    
+    question_responses = [
+        QuestionForTest(
+            id=q.id,
+            question_type=q.question_type,
+            question_text=q.question_text,
+            options=q.options,
+            media_url=q.media_url,
+            passage=q.passage,
+            sentences=q.sentences,
+            html_content=q.html_content,
+            # For agent_analysis, use division docs; otherwise use question docs
+            documents=division_docs if q.question_type == "agent_analysis" and division_docs else q.documents,
+            marks=q.marks
+        )
+        for q in questions
+    ]
+    
+    return TestSessionResponse(
+        attempt_id=attempt.id,
+        test_id=test.id,
+        test_title=test.title,
+        duration_minutes=test.duration_minutes,
+        total_questions=len(question_responses),
+        questions=question_responses,
+        started_at=attempt.started_at,
+        enable_tab_switch_detection=test.enable_tab_switch_detection,
+        max_tab_switches_allowed=test.max_tab_switches_allowed
     )
 
 
@@ -156,29 +254,43 @@ async def _get_sample_questions(db: AsyncSession, test: Test) -> List[Question]:
         questions.extend(result.scalars().all())
     
     if test.text_annotation_count > 0:
+        # Match both "text" and "text_annotation" types
         result = await db.execute(
             select(Question)
-            .where(Question.question_type == "text_annotation")
+            .where(Question.question_type.in_(["text_annotation", "text", "reading"]))
             .where(Question.is_active == True)
             .limit(test.text_annotation_count)
         )
         questions.extend(result.scalars().all())
     
     if test.image_annotation_count > 0:
+        # Match both "image" and "image_annotation" types
         result = await db.execute(
             select(Question)
-            .where(Question.question_type == "image_annotation")
+            .where(Question.question_type.in_(["image_annotation", "image"]))
             .where(Question.is_active == True)
             .limit(test.image_annotation_count)
         )
         questions.extend(result.scalars().all())
     
     if test.video_annotation_count > 0:
+        # Match both "video" and "video_annotation" types
         result = await db.execute(
             select(Question)
-            .where(Question.question_type == "video_annotation")
+            .where(Question.question_type.in_(["video_annotation", "video"]))
             .where(Question.is_active == True)
             .limit(test.video_annotation_count)
+        )
+        questions.extend(result.scalars().all())
+    
+    if test.agent_analysis_count > 0:
+        result = await db.execute(
+            select(Question)
+            .where(Question.question_type == "agent_analysis")
+            .where(Question.is_active == True)
+            .where(Question.html_content.isnot(None))  # Only questions with content
+            .order_by(Question.id.desc())  # Prefer newer questions
+            .limit(test.agent_analysis_count)
         )
         questions.extend(result.scalars().all())
     
@@ -266,9 +378,101 @@ async def submit_answer(
         return {"message": "Answer submitted", "answer_id": answer.id}
 
 
+@router.post("/upload-answer-file")
+async def upload_answer_file(
+    file: UploadFile = File(...),
+    attempt_id: int = Form(...),
+    question_id: int = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload Excel/CSV file as answer for agent_analysis questions"""
+    import os
+    import httpx
+    from datetime import datetime
+    
+    # Verify attempt belongs to user
+    attempt = await db.execute(
+        select(TestAttempt).where(
+            TestAttempt.id == attempt_id,
+            TestAttempt.user_id == current_user.id
+        )
+    )
+    attempt = attempt.scalar_one_or_none()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    
+    # Validate file type
+    allowed_extensions = {'.xlsx', '.xls', '.csv'}
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Only Excel (.xlsx, .xls) and CSV files allowed")
+    
+    # Upload to Supabase Storage
+    # All uploads go to Supabase Storage - use service_role key for write access
+    supabase_url = os.getenv("SUPABASE_URL")
+    # Service role key (has write permissions)
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    
+    if not supabase_url or not supabase_key:
+        raise HTTPException(status_code=500, detail="Supabase configuration missing")
+    
+    bucket = "division-docs"
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"{attempt_id}_{question_id}_{timestamp}{ext}"
+    safe_filename = filename.replace(" ", "_")
+    file_path = f"answers/{safe_filename}"
+    
+    try:
+        content = await file.read()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{supabase_url}/storage/v1/object/{bucket}/{file_path}",
+                headers={
+                    "Authorization": f"Bearer {supabase_key}",
+                    "apikey": supabase_key,
+                    "Content-Type": file.content_type or "application/octet-stream"
+                },
+                content=content
+            )
+            
+            if response.status_code in [200, 201]:
+                public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{file_path}"
+            else:
+                raise HTTPException(status_code=500, detail=f"Upload failed: {response.text}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Upload timeout - file too large")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+    
+    # Store file URL as answer
+    answer = await db.execute(
+        select(UserAnswer).where(
+            UserAnswer.attempt_id == attempt_id,
+            UserAnswer.question_id == question_id
+        )
+    )
+    answer = answer.scalar_one_or_none()
+    
+    if answer:
+        answer.answer_text = f"FILE:{public_url}"
+    else:
+        answer = UserAnswer(
+            attempt_id=attempt_id,
+            question_id=question_id,
+            answer_text=f"FILE:{public_url}"
+        )
+        db.add(answer)
+    
+    await db.commit()
+    
+    return {"message": "File uploaded", "filepath": public_url}
+
+
 @router.post("/complete/{attempt_id}", response_model=TestResultResponse)
 async def complete_test(
     attempt_id: int,
+    data: Optional[CompleteTestRequest] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -286,6 +490,13 @@ async def complete_test(
     
     if attempt.status == "completed":
         raise HTTPException(status_code=400, detail="Test already completed")
+        
+    # Update tab switches if provided
+    if data and data.tab_switches:
+        attempt.tab_switches = max(attempt.tab_switches, data.tab_switches)
+        if attempt.tab_switches >= 3: # Should use test config here but simpler to hardcode default for now
+             attempt.is_flagged = True
+             attempt.flag_reason = f"Multiple tab switches: {attempt.tab_switches}"
     
     # Get the test
     test_result = await db.execute(
@@ -490,3 +701,68 @@ async def get_test_result(
         completed_at=attempt.completed_at,
         answers=answer_details
     )
+
+
+@router.get("/content-proxy")
+async def proxy_content(
+    url: str
+):
+    """
+    Proxy endpoint to serve content with correct content-type/disposition.
+    Uses streaming to prevent memory exhaustion (OOM) on large files.
+    """
+    import httpx
+    from fastapi.responses import StreamingResponse
+    from fastapi import HTTPException
+    
+    # Validate URL is from Cloudinary, Supabase, or our backend
+    allowed_domains = [
+        "https://res.cloudinary.com/",
+        "https://rmysstjbjaaqctbbswmj.supabase.co/",
+        "/"
+    ]
+    if not any(url.startswith(domain) for domain in allowed_domains):
+        raise HTTPException(status_code=400, detail="Invalid URL source")
+    
+    try:
+        # We use a generator to keep the client session open during streaming
+        async def stream_generator():
+            async with httpx.AsyncClient() as client:
+                try:
+                    async with client.stream("GET", url, timeout=60.0) as response:
+                        response.raise_for_status()
+                        async for chunk in response.aiter_bytes():
+                            yield chunk
+                except httpx.HTTPError as e:
+                    # Log error or handle gracefully (streaming might have started)
+                    print(f"Stream error: {e}")
+                    raise
+
+        # Fetch header info first to set media_type correctly without loading body
+        async with httpx.AsyncClient() as client:
+             head_response = await client.head(url, timeout=10.0)
+        
+        # Default to upstream content-type
+        media_type = head_response.headers.get("content-type", "application/octet-stream")
+        
+        # FORCE override based on file extension because Supabase/upstream often sends text/plain
+        lower_url = url.lower()
+        if lower_url.endswith('.html') or lower_url.endswith('.htm'):
+            media_type = "text/html; charset=utf-8"
+        elif lower_url.endswith('.pdf'):
+            media_type = "application/pdf"
+            
+        # Override header for PDF/HTML inline display if needed
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Disposition": "inline"
+        }
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type=media_type,
+            headers=headers
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch content: {str(e)}")

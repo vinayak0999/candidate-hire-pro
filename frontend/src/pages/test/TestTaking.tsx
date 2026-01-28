@@ -86,16 +86,23 @@ export default function TestTaking() {
     });
 
     // Timer hook
-    const timer = useTestTimer(session?.duration_minutes || 60, () => {
-        // Auto-submit when time is up
-        handleSubmitTest();
-    });
+    const timer = useTestTimer(
+        session?.duration_minutes || 60,
+        () => {
+            // Auto-submit when time is up
+            handleSubmitTest();
+        },
+        session?.started_at // Sync with server start time
+    );
 
     // Report violation to backend
     const reportViolation = async (type: string) => {
         if (!session) return;
         try {
             const token = localStorage.getItem('access_token');
+            // Check if token exists
+            if (!token) return;
+
             await fetch(`${API_BASE_URL}/tests/flag-violation/${session.attempt_id}?violation_type=${type}`, {
                 method: 'POST',
                 headers: {
@@ -112,6 +119,11 @@ export default function TestTaking() {
         const startTest = async () => {
             try {
                 const token = localStorage.getItem('access_token');
+                if (!token) {
+                    navigate('/login');
+                    return;
+                }
+
                 const response = await fetch(`${API_BASE_URL}/tests/start`, {
                     method: 'POST',
                     headers: {
@@ -127,6 +139,7 @@ export default function TestTaking() {
                     timer.start();
                     // Fullscreen removed - must be user-initiated per browser security policy
                 } else {
+                    console.error('Start test failed:', await response.text());
                     // navigate('/tests');
                     setLoading(false);
                 }
@@ -183,10 +196,14 @@ export default function TestTaking() {
     useEffect(() => {
         if (!session) return;
         const token = localStorage.getItem('access_token');
+        if (!token) return;
 
         const syncToBackend = async () => {
             for (const [questionId, answerText] of Object.entries(answers)) {
                 try {
+                    // Skip file placeholders
+                    if (answerText.startsWith('FILE:')) continue;
+
                     await fetch(`${API_BASE_URL}/tests/submit-answer?attempt_id=${session.attempt_id}`, {
                         method: 'POST',
                         headers: {
@@ -222,21 +239,32 @@ export default function TestTaking() {
         setSubmitting(true);
         try {
             const token = localStorage.getItem('access_token');
+            if (!token) {
+                alert('Session expired. Please login again.');
+                return;
+            }
 
             // Upload files first (for agent_analysis questions)
             for (const [questionId, file] of Object.entries(fileAnswers)) {
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('attempt_id', session.attempt_id.toString());
-                formData.append('question_id', questionId);
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('attempt_id', session.attempt_id.toString());
+                    formData.append('question_id', questionId);
 
-                await fetch(`${API_BASE_URL}/tests/upload-answer-file`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: formData
-                });
+                    const res = await fetch(`${API_BASE_URL}/tests/upload-answer-file`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: formData
+                    });
+
+                    if (!res.ok) throw new Error('File upload failed');
+                } catch (e) {
+                    console.error('File upload failed', e);
+                    // Continue with other submissions
+                }
             }
 
             // Submit all text answers
@@ -244,17 +272,22 @@ export default function TestTaking() {
                 // Skip file answers (they're already uploaded)
                 if (answerText.startsWith('FILE:')) continue;
 
-                await fetch(`${API_BASE_URL}/tests/submit-answer?attempt_id=${session.attempt_id}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        question_id: parseInt(questionId),
-                        answer_text: answerText
-                    })
-                });
+                try {
+                    await fetch(`${API_BASE_URL}/tests/submit-answer?attempt_id=${session.attempt_id}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            question_id: parseInt(questionId),
+                            answer_text: answerText
+                        })
+                    });
+                } catch (e) {
+                    console.error(`Failed to submit answer for question ${questionId}`, e);
+                    // Continue with other answers
+                }
             }
 
             // Complete test
@@ -274,9 +307,13 @@ export default function TestTaking() {
                 const result = await response.json();
                 antiCheat.exitFullscreen();
                 navigate(`/test-result/${session.attempt_id}`, { state: { result } });
+            } else {
+                const errText = await response.text();
+                throw new Error(errText || 'Failed to complete test');
             }
         } catch (error) {
             console.error('Failed to submit test:', error);
+            alert(`Failed to submit test: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
         } finally {
             setSubmitting(false);
         }
