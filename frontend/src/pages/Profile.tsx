@@ -134,22 +134,19 @@ export default function Profile({ user }: ProfileProps) {
                 setUploadProgress(prev => Math.min(prev + 10, 90));
             }, 500);
 
-            // Backend now returns {status: "processing", job_id: N} immediately
+            // Backend parses synchronously and updates profile
             await profileApi.uploadResume(file);
 
             clearInterval(progressInterval);
             setUploadProgress(100);
 
-            // Show success - resume is processing in background
-            // Refetch profile after a delay to get updated data
-            setTimeout(async () => {
-                try {
-                    const data = await profileApi.getMyProfile();
-                    setProfile(data);
-                } catch (e) {
-                    // Ignore - profile may not be ready yet
-                }
-            }, 3000);
+            // Refetch profile immediately - backend processes synchronously now
+            try {
+                const data = await profileApi.getMyProfile();
+                setProfile(data);
+            } catch (e) {
+                console.error('Failed to refetch profile:', e);
+            }
 
             setTimeout(() => setUploadProgress(0), 1000);
         } catch (err: any) {

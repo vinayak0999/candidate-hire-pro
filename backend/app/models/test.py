@@ -13,6 +13,7 @@ class QuestionType(str, enum.Enum):
     TEXT_ANNOTATION = "text_annotation"
     IMAGE_ANNOTATION = "image_annotation"
     VIDEO_ANNOTATION = "video_annotation"
+    AGENT_ANALYSIS = "agent_analysis"
 
 
 class Division(Base):
@@ -23,6 +24,9 @@ class Division(Base):
     name = Column(String(255), nullable=False)
     description = Column(String(1000), nullable=True)
     is_active = Column(Boolean, default=True)
+    # Shared documents for Agent Analysis questions in this division
+    # Format: [{"id": "doc-1", "title": "...", "content": "url or text"}]
+    documents = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -53,6 +57,10 @@ class Question(Base):
     # For Jumble-Tumble (sentences in correct order)
     sentences = Column(JSON, nullable=True)  # List of sentences in correct order
     
+    # For Agent Analysis (In-Page Browser)
+    html_content = Column(Text, nullable=True)  # HTML content for iframe
+    documents = Column(JSON, nullable=True)  # List of {id, title, content} max 4
+    
     marks = Column(Float, default=1.0)
     difficulty = Column(String(20), default="medium")  # easy, medium, hard
     tags = Column(JSON, nullable=True)  # For categorization
@@ -80,11 +88,16 @@ class Test(Base):
     total_marks = Column(Float, default=0)
     passing_marks = Column(Float, default=0)
     
+    # Anti-Cheat Configuration
+    enable_tab_switch_detection = Column(Boolean, default=True)
+    max_tab_switches_allowed = Column(Integer, default=3)
+    
     # Module counts (for test generation)
     mcq_count = Column(Integer, default=0)
     text_annotation_count = Column(Integer, default=0)
     image_annotation_count = Column(Integer, default=0)
     video_annotation_count = Column(Integer, default=0)
+    agent_analysis_count = Column(Integer, default=0)
     
     is_active = Column(Boolean, default=True)
     is_published = Column(Boolean, default=False)

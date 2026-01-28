@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum as SQLEnum, ForeignKey, Float
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
 import enum
@@ -31,6 +32,11 @@ class Job(Base):
     description = Column(String(5000), nullable=True)  # Job description
     offer_type = Column(SQLEnum(OfferType), default=OfferType.REGULAR)
     round_date = Column(DateTime(timezone=True), nullable=True)
+    
+    # Link to assessment
+    test_id = Column(Integer, ForeignKey("tests.id"), nullable=True)
+    test = relationship("app.models.test.Test")
+    
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

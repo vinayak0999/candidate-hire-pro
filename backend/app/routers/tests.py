@@ -81,7 +81,22 @@ async def start_test(
     if not test:
         raise HTTPException(status_code=404, detail="Test not found or not available")
     
-    # Check if user has an in-progress attempt
+    # Check if user already COMPLETED this test (prevent retake)
+    completed_result = await db.execute(
+        select(TestAttempt)
+        .where(TestAttempt.test_id == data.test_id)
+        .where(TestAttempt.user_id == current_user.id)
+        .where(TestAttempt.status == "completed")
+    )
+    completed_attempt = completed_result.scalar_one_or_none()
+    
+    if completed_attempt:
+        raise HTTPException(
+            status_code=400, 
+            detail="You have already completed this test. Each test can only be taken once."
+        )
+    
+    # Check if user has an in-progress attempt (to resume)
     existing_result = await db.execute(
         select(TestAttempt)
         .where(TestAttempt.test_id == data.test_id)
@@ -388,8 +403,8 @@ async def upload_answer_file(
 ):
     """Upload Excel/CSV file as answer for agent_analysis questions"""
     import os
-    import httpx
     from datetime import datetime
+    from ..services.supabase_upload import upload_to_supabase
     
     # Verify attempt belongs to user
     attempt = await db.execute(
@@ -408,47 +423,20 @@ async def upload_answer_file(
     if ext not in allowed_extensions:
         raise HTTPException(status_code=400, detail="Only Excel (.xlsx, .xls) and CSV files allowed")
     
-    # Upload to Supabase Storage
-    # All uploads go to Supabase Storage - use service_role key for write access
-    supabase_url = os.getenv("SUPABASE_URL")
-    # Service role key (has write permissions)
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    
-    if not supabase_url or not supabase_key:
-        raise HTTPException(status_code=500, detail="Supabase configuration missing")
-    
-    bucket = "division-docs"
+    # Build file path
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"{attempt_id}_{question_id}_{timestamp}{ext}"
     safe_filename = filename.replace(" ", "_")
     file_path = f"answers/{safe_filename}"
     
+    # Upload using the proper service
     try:
-        # Stream file to Supabase using a generator to avoid loading it into memory
-        async def file_generator():
-            while True:
-                chunk = await file.read(64 * 1024)  # 64KB chunks
-                if not chunk:
-                    break
-                yield chunk
-
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{supabase_url}/storage/v1/object/{bucket}/{file_path}",
-                headers={
-                    "Authorization": f"Bearer {supabase_key}",
-                    "apikey": supabase_key,
-                    "Content-Type": file.content_type or "application/octet-stream"
-                },
-                content=file_generator()
-            )
-            
-            if response.status_code in [200, 201]:
-                public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{file_path}"
-            else:
-                raise HTTPException(status_code=500, detail=f"Upload failed: {response.text}")
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Upload timeout - file too large")
+        public_url = await upload_to_supabase(
+            file=file,
+            bucket="division-docs",
+            file_path=file_path,
+            content_type=file.content_type
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
     
@@ -538,14 +526,19 @@ async def complete_test(
     await db.commit()
     await db.refresh(attempt)
     
-    # Build answer details
+    # Build answer details - fetch all questions in ONE query (avoid N+1)
+    question_ids = [a.question_id for a in answers]
+    if question_ids:
+        questions_result = await db.execute(
+            select(Question).where(Question.id.in_(question_ids))
+        )
+        questions_map = {q.id: q for q in questions_result.scalars().all()}
+    else:
+        questions_map = {}
+    
     answer_details = []
     for answer in answers:
-        q_result = await db.execute(
-            select(Question).where(Question.id == answer.question_id)
-        )
-        question = q_result.scalar_one_or_none()
-        
+        question = questions_map.get(answer.question_id)
         answer_details.append({
             "question_id": answer.question_id,
             "question_text": question.question_text if question else "",

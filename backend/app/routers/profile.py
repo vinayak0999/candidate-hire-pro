@@ -1,6 +1,7 @@
 """
 Profile Router - Resume upload, parsing, and profile CRUD operations
 """
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
@@ -12,8 +13,12 @@ from ..database import get_db
 from ..models import User, CandidateProfile, Skill, Education, WorkExperience, Project
 from ..models import Certification, Publication, Award, UserLanguage
 from ..models import SkillCategory, ProficiencyLevel, LanguageProficiency
+from ..models import ResumeParsingJob, ResumeParsingStatus
 from ..services.auth import get_current_user
-from ..services.resume_parser import parse_resume_with_gemini, normalize_skill_name, deduplicate_skills
+from ..services.resume_parser import (
+    parse_resume_with_gemini, parse_resume_safe, 
+    normalize_skill_name, deduplicate_skills
+)
 from ..services.vector_search import vector_search_service
 from ..schemas.profile import (
     ProfileResponse, ProfileUpdate,
@@ -114,15 +119,18 @@ async def complete_profile(
     
     return {"success": True, "message": "Profile setup complete"}
 
-@router.post("/upload-resume", response_model=ProfileResponse)
+@router.post("/upload-resume")
 async def upload_resume(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Upload and parse a resume PDF.
-    Creates or updates the user's profile with extracted data.
+    Upload resume - returns immediately, parses in background.
+    
+    The endpoint validates the file and returns a job_id immediately.
+    Parsing happens asynchronously using asyncio.create_task.
+    Check status via GET /api/profile/resume-status/{job_id}
     """
     # Validate file type
     if not file.filename.lower().endswith('.pdf'):
@@ -140,24 +148,176 @@ async def upload_resume(
             detail="File size must be less than 10MB"
         )
     
-    # Parse resume with Gemini
-    try:
-        parsed = await parse_resume_with_gemini(pdf_bytes)
-    except Exception as e:
+    # Create parsing job record
+    job = ResumeParsingJob(
+        user_id=current_user.id,
+        resume_filename=file.filename,
+        status=ResumeParsingStatus.PENDING
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    
+    # Fire and forget - process in background
+    # This uses same event loop, no extra infrastructure needed
+    asyncio.create_task(
+        process_resume_background(
+            job_id=job.id,
+            user_id=current_user.id,
+            pdf_bytes=pdf_bytes,
+            filename=file.filename
+        )
+    )
+    
+    return {
+        "status": "processing",
+        "job_id": job.id,
+        "message": "Resume uploaded successfully. Parsing in background."
+    }
+
+
+@router.get("/resume-status/{job_id}")
+async def get_resume_status(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check the status of a resume parsing job."""
+    result = await db.execute(
+        select(ResumeParsingJob).where(
+            ResumeParsingJob.id == job_id,
+            ResumeParsingJob.user_id == current_user.id
+        )
+    )
+    job = result.scalar_one_or_none()
+    
+    if not job:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to parse resume: {str(e)}"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
         )
     
+    return {
+        "job_id": job.id,
+        "status": job.status.value,
+        "error_message": job.error_message,
+        "retry_count": job.retry_count,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None
+    }
+
+
+@router.get("/resume-status")
+async def get_latest_resume_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get the status of the user's most recent resume parsing job."""
+    result = await db.execute(
+        select(ResumeParsingJob)
+        .where(ResumeParsingJob.user_id == current_user.id)
+        .order_by(ResumeParsingJob.created_at.desc())
+        .limit(1)
+    )
+    job = result.scalar_one_or_none()
+    
+    if not job:
+        return {"status": "none", "message": "No resume parsing jobs found"}
+    
+    return {
+        "job_id": job.id,
+        "status": job.status.value,
+        "error_message": job.error_message,
+        "retry_count": job.retry_count
+    }
+
+
+# ============================================================================
+# Background Processing Function
+# ============================================================================
+
+async def process_resume_background(
+    job_id: int,
+    user_id: int,
+    pdf_bytes: bytes,
+    filename: str
+):
+    """
+    Background task to parse resume and update profile.
+    
+    This runs in the same event loop as the main app but doesn't block.
+    Uses a fresh database session to avoid connection issues.
+    """
+    from ..database import async_session_maker
+    
+    async with async_session_maker() as db:
+        try:
+            # Mark job as processing
+            result = await db.execute(
+                select(ResumeParsingJob).where(ResumeParsingJob.id == job_id)
+            )
+            job = result.scalar_one_or_none()
+            if not job:
+                return
+            
+            job.status = ResumeParsingStatus.PROCESSING
+            job.started_at = datetime.now(timezone.utc)
+            await db.commit()
+            
+            # Parse resume with retries
+            parsed, error = await parse_resume_safe(pdf_bytes, max_retries=3)
+            
+            if error or not parsed:
+                job.status = ResumeParsingStatus.FAILED
+                job.error_message = error or "Parsing returned no data"
+                job.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                print(f"Resume parsing failed for job {job_id}: {error}")
+                return
+            
+            # Apply parsed data to profile
+            await apply_parsed_to_profile(db, user_id, parsed, filename)
+            
+            # Mark job as complete
+            job.status = ResumeParsingStatus.COMPLETED
+            job.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+            
+            print(f"Resume parsing completed for job {job_id}")
+            
+        except Exception as e:
+            print(f"Background resume processing error for job {job_id}: {e}")
+            try:
+                result = await db.execute(
+                    select(ResumeParsingJob).where(ResumeParsingJob.id == job_id)
+                )
+                job = result.scalar_one_or_none()
+                if job:
+                    job.status = ResumeParsingStatus.FAILED
+                    job.error_message = str(e)[:500]  # Truncate long errors
+                    job.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+            except Exception:
+                pass  # Don't let error handling cause more errors
+
+
+async def apply_parsed_to_profile(
+    db: AsyncSession,
+    user_id: int,
+    parsed,
+    filename: str
+):
+    """Apply parsed resume data to user profile."""
+    from ..services.resume_parser import deduplicate_skills
+    
     # Get or create profile
-    profile = await get_profile_with_relations(db, current_user.id)
+    profile = await get_profile_with_relations(db, user_id)
     
     if not profile:
-        profile = CandidateProfile(user_id=current_user.id)
+        profile = CandidateProfile(user_id=user_id)
         db.add(profile)
-        await db.flush()  # Get the ID
-        # Reload with relations to avoid lazy loading issues
-        profile = await get_profile_with_relations(db, current_user.id)
+        await db.flush()
+        profile = await get_profile_with_relations(db, user_id)
     else:
         # Clear existing related data for re-parse
         profile.education.clear()
@@ -167,10 +327,9 @@ async def upload_resume(
         profile.certifications.clear()
         profile.publications.clear()
         profile.awards.clear()
-        # Keep languages as they're manually added
     
     # Update profile fields
-    profile.resume_filename = file.filename
+    profile.resume_filename = filename
     profile.resume_parsed_at = datetime.now(timezone.utc)
     profile.professional_summary = parsed.professional_summary
     profile.years_of_experience = parsed.years_of_experience
@@ -184,18 +343,18 @@ async def upload_resume(
         profile.portfolio_url = parsed.personal_info.portfolio_url
         profile.location = parsed.personal_info.location
         
-        # Update user's name from resume if available and user's name was auto-generated
+        # Update user's name from resume if available
         if parsed.personal_info.name:
-            # Only update if current name looks auto-generated (email prefix or missing)
-            if not current_user.name or '@' in current_user.name or current_user.name == current_user.email.split('@')[0]:
-                current_user.name = parsed.personal_info.name
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if user and (not user.name or '@' in user.name or user.name == user.email.split('@')[0]):
+                user.name = parsed.personal_info.name
     
     # Coding profiles
     if parsed.coding_profiles:
         profile.leetcode_username = parsed.coding_profiles.leetcode
         profile.codechef_username = parsed.coding_profiles.codechef
         profile.codeforces_username = parsed.coding_profiles.codeforces
-        # GitHub might be in coding_profiles or personal_info
         if parsed.coding_profiles.github:
             profile.github_url = f"https://github.com/{parsed.coding_profiles.github}"
     
@@ -273,9 +432,8 @@ async def upload_resume(
             year=award.year
         ))
     
-    # Add languages from resume (if any)
+    # Add languages from resume
     for lang in parsed.languages:
-        # Map proficiency
         prof_map = {
             "native": LanguageProficiency.NATIVE,
             "fluent": LanguageProficiency.FLUENT,
@@ -292,24 +450,21 @@ async def upload_resume(
     
     # Index in Pinecone for vector search
     if profile.professional_summary:
-        embedding_id = await vector_search_service.index_profile(
-            profile_id=profile.id,
-            summary=profile.professional_summary,
-            skills=skill_names,
-            years_exp=profile.years_of_experience,
-            current_role=profile.current_role,
-            current_company=profile.current_company
-        )
-        if embedding_id:
-            profile.summary_embedding_id = embedding_id
+        try:
+            embedding_id = await vector_search_service.index_profile(
+                profile_id=profile.id,
+                summary=profile.professional_summary,
+                skills=skill_names,
+                years_exp=profile.years_of_experience,
+                current_role=profile.current_role,
+                current_company=profile.current_company
+            )
+            if embedding_id:
+                profile.summary_embedding_id = embedding_id
+        except Exception as e:
+            print(f"Vector indexing failed (non-critical): {e}")
     
     await db.commit()
-    await db.refresh(profile)
-    
-    # Reload with relations
-    profile = await get_profile_with_relations(db, current_user.id)
-    
-    return profile
 
 
 @router.get("/me", response_model=ProfileResponse)

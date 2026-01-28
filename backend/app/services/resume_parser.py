@@ -1504,6 +1504,14 @@ async def parse_resume_with_gemini(pdf_bytes: bytes) -> ParsedResume:
     except json.JSONDecodeError as e:
         print(f"Failed to parse JSON response: {e}")
         print(f"Raw response: {response_text[:500]}...")
+        
+        # Try to repair truncated JSON
+        repaired = repair_truncated_json(response_text)
+        if repaired:
+            print("Successfully repaired truncated JSON")
+            normalized_data = normalize_gemini_output(repaired)
+            return ParsedResume(**normalized_data)
+        
         # Return empty parsed resume on failure
         return ParsedResume()
     except Exception as e:
@@ -1558,3 +1566,119 @@ def deduplicate_skills(skills: List[SkillEntry]) -> List[SkillEntry]:
                 skill_map[normalized] = skill
     
     return list(skill_map.values())
+
+
+# ============================================================================
+# Robust JSON Handling & Background Processing
+# ============================================================================
+
+def repair_truncated_json(raw_response: str) -> dict | None:
+    """
+    Attempt to repair truncated JSON responses from Gemini.
+    This handles cases where the API returns cut-off output.
+    
+    Strategy:
+    1. Try parsing as-is
+    2. Find the last complete object/array
+    3. Close open braces/brackets
+    """
+    import re
+    text = raw_response.strip()
+    
+    # Remove markdown code blocks if present
+    if text.startswith("```json"):
+        text = text[7:]
+    if text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+    
+    # Try parsing as-is first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    # Strategy 1: Find last complete structure and truncate there
+    # Look for positions where we have a complete key-value pair
+    last_valid_pos = -1
+    
+    # Try progressively truncating from the end
+    for cutoff_marker in ['},', '},\n', '"],', '],', '"}', '"]']:
+        pos = text.rfind(cutoff_marker)
+        if pos > last_valid_pos:
+            last_valid_pos = pos + len(cutoff_marker) - 1
+    
+    if last_valid_pos > 0:
+        text = text[:last_valid_pos]
+    
+    # Strategy 2: Close any remaining open structures
+    # Remove trailing incomplete content (partial strings, etc.)
+    # Find the last closing brace/bracket
+    while text and text[-1] not in ']}':
+        # Remove characters until we hit a structural character
+        text = text[:-1]
+    
+    if not text:
+        return None
+    
+    # Count open vs closed braces/brackets
+    open_braces = text.count('{') - text.count('}')
+    open_brackets = text.count('[') - text.count(']')
+    
+    # Close in reverse order (inner to outer)
+    # Generally arrays are inside objects in JSON responses
+    text += ']' * max(0, open_brackets)
+    text += '}' * max(0, open_braces)
+    
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        print(f"JSON repair failed: {e}")
+        return None
+
+
+async def parse_resume_safe(pdf_bytes: bytes, max_retries: int = 3) -> tuple[ParsedResume | None, str | None]:
+    """
+    Parse resume with robust error handling and retries.
+    
+    Args:
+        pdf_bytes: PDF file content
+        max_retries: Number of retry attempts
+        
+    Returns:
+        Tuple of (ParsedResume or None, error_message or None)
+    """
+    import asyncio
+    
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            result = await parse_resume_with_gemini(pdf_bytes)
+            # Check if we got meaningful data
+            if result.professional_summary or result.work_experience or result.education:
+                return (result, None)
+            # Empty result - might be parsing issue, retry
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                continue
+            return (result, None)  # Return empty result on last attempt
+            
+        except json.JSONDecodeError as e:
+            last_error = f"JSON parse error: {str(e)}"
+            print(f"Attempt {attempt + 1}/{max_retries}: {last_error}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)
+                continue
+                
+        except Exception as e:
+            last_error = f"Parsing error: {str(e)}"
+            print(f"Attempt {attempt + 1}/{max_retries}: {last_error}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)
+                continue
+    
+    return (None, last_error)
+
