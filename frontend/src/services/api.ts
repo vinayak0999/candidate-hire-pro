@@ -6,12 +6,9 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:80
 // Extract host for media URLs (removes /api suffix)
 export const API_HOST = API_BASE_URL.replace('/api', '');
 
-// Direct EB URL for file uploads (bypasses CloudFront's 1MB body limit)
-// In production, CloudFront blocks large POST requests, so we upload directly to EB
-const isProduction = API_BASE_URL.includes('cloudfront.net');
-export const UPLOAD_BASE_URL = isProduction
-    ? 'https://hiring-platform-env.eba-ndvag8ge.ap-south-1.elasticbeanstalk.com/api'
-    : API_BASE_URL;
+// Use the same URL for uploads - CloudFront can handle large files with proper config
+// Direct EB URL bypasses caused connection issues due to security groups
+export const UPLOAD_BASE_URL = API_BASE_URL;
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -20,7 +17,7 @@ const api = axios.create({
     },
 });
 
-// Separate axios instance for file uploads (uses direct EB URL to bypass CloudFront)
+// Separate axios instance for file uploads
 const uploadApi = axios.create({
     baseURL: UPLOAD_BASE_URL,
 });
