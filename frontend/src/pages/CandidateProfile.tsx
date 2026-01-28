@@ -115,18 +115,44 @@ export default function CandidateProfile({ user: _user }: ProfileProps) {
             setUploadProgress(10);
             setError(null);
 
-            // Simulate progress
-            const progressInterval = setInterval(() => {
-                setUploadProgress(prev => Math.min(prev + 10, 90));
-            }, 500);
-
-            // Backend parses synchronously and updates profile
+            // Upload file - returns immediately, parses in background
             await profileApi.uploadResume(file);
+            setUploadProgress(30);
 
-            clearInterval(progressInterval);
+            // Poll for parsing completion (up to 60 seconds)
+            const maxAttempts = 30;
+            let attempts = 0;
+            let parsingComplete = false;
+
+            while (attempts < maxAttempts && !parsingComplete) {
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+                attempts++;
+                setUploadProgress(30 + Math.min(attempts * 2, 60)); // Progress 30-90%
+
+                try {
+                    // Check parsing status
+                    const status = await profileApi.getResumeStatus();
+                    console.log('Resume parsing status:', status);
+
+                    if (status.status === 'completed') {
+                        parsingComplete = true;
+                    } else if (status.status === 'failed') {
+                        throw new Error(status.error_message || 'Resume parsing failed');
+                    } else if (status.status === 'none') {
+                        // No job tracking - just wait and refetch profile
+                        parsingComplete = true;
+                    }
+                    // 'pending' or 'processing' - keep polling
+                } catch (statusErr: any) {
+                    // If status check fails, try refetching profile directly
+                    console.log('Status check failed, trying profile refetch');
+                    parsingComplete = true;
+                }
+            }
+
             setUploadProgress(100);
 
-            // Refetch profile immediately - backend processes synchronously now
+            // Refetch profile to get parsed data
             try {
                 const data = await profileApi.getMyProfile();
                 setProfile(data);
@@ -137,6 +163,7 @@ export default function CandidateProfile({ user: _user }: ProfileProps) {
             setTimeout(() => setUploadProgress(0), 1000);
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to upload resume');
+            setUploadProgress(0);
         } finally {
             setUploading(false);
         }

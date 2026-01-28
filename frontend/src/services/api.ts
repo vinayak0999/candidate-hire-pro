@@ -415,6 +415,11 @@ export const profileApi = {
         const response = await api.delete(`/profile/me/languages/${languageId}`);
         return response.data;
     },
+
+    getResumeStatus: async (): Promise<{ status: string; error_message?: string; job_id?: number }> => {
+        const response = await api.get('/profile/resume-status');
+        return response.data;
+    },
 };
 
 // Notifications API
