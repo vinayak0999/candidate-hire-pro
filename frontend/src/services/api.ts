@@ -6,13 +6,6 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:80
 // Extract host for media URLs (removes /api suffix)
 export const API_HOST = API_BASE_URL.replace('/api', '');
 
-// Direct EB URL for file uploads (bypasses CloudFront's 1MB body limit)
-// In production, CloudFront blocks large POST requests, so we upload directly to EB
-const isProduction = API_BASE_URL.includes('cloudfront.net');
-export const UPLOAD_BASE_URL = isProduction
-    ? 'https://hiring-platform-env.eba-ndvag8ge.ap-south-1.elasticbeanstalk.com/api'
-    : API_BASE_URL;
-
 const api = axios.create({
     baseURL: API_BASE_URL,
     headers: {
@@ -20,22 +13,8 @@ const api = axios.create({
     },
 });
 
-// Separate axios instance for file uploads (uses direct EB URL to bypass CloudFront)
-const uploadApi = axios.create({
-    baseURL: UPLOAD_BASE_URL,
-});
-
-// Add auth token to regular API requests
+// Add auth token to requests
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-// Add auth token to upload requests
-uploadApi.interceptors.request.use((config) => {
     const token = localStorage.getItem('access_token');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
@@ -362,7 +341,7 @@ export const profileApi = {
     uploadResume: async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
-        const response = await uploadApi.post('/profile/upload-resume', formData, {
+        const response = await api.post('/profile/upload-resume', formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
         return response.data;

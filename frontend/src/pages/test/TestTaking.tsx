@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAntiCheat, useTestTimer } from '../../hooks/useAntiCheat';
-import { API_BASE_URL, API_HOST, UPLOAD_BASE_URL } from '../../services/api';
+import { API_BASE_URL, API_HOST } from '../../services/api';
 import InPageBrowser from '../../components/InPageBrowser';
 import './TestTaking.css';
 
 // Helper to get full media URL
 const getMediaUrl = (url?: string) => {
     if (!url) return '';
+    // If already a full URL (http/https or Cloudinary), return as-is
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    // Otherwise prepend backend host
     return `${API_HOST}${url}`;
 };
 
@@ -44,37 +46,35 @@ export default function TestTaking() {
     const [session, setSession] = useState<TestSession | null>(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState<Record<number, string>>({});
-    const [flaggedQuestions, setFlaggedQuestions] = useState<Set<number>>(new Set());
     const [globalAnswerFile, setGlobalAnswerFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [showWarning, setShowWarning] = useState(false);
     const [warningMessage, setWarningMessage] = useState('');
-    const [showSubmitModal, setShowSubmitModal] = useState(false);
-    const [showQuestionNav, setShowQuestionNav] = useState(false);
 
-    // Anti-cheat hook
-    const isTabDetectionEnabled = session?.enable_tab_switch_detection === true;
-
+    // Anti-cheat hook with 10K+ security
     const antiCheat = useAntiCheat({
         onViolation: (type, count) => {
-            if ((type === 'tab_switch' || type === 'window_blur') && !isTabDetectionEnabled) {
-                return;
-            }
+            console.log(`Security Violation: ${type}, count: ${count}`);
+
+            // Report ALL violations to backend
             reportViolation(type);
 
             if (type === 'tab_switch' || type === 'window_blur') {
                 const max = session?.max_tab_switches_allowed || 3;
-                setWarningMessage(`Focus lost (${count}/${max}). Stay on this page.`);
+                setWarningMessage(`⚠️ Focus lost (${count}/${max}). Stay on this page.`);
                 setShowWarning(true);
             } else if (type === 'fullscreen_exit') {
-                setWarningMessage(`Fullscreen exit detected. Please stay in fullscreen mode.`);
+                setWarningMessage(`⚠️ Fullscreen exit detected. Please stay in fullscreen mode.`);
                 setShowWarning(true);
             } else if (type === 'devtools_open') {
-                setWarningMessage(`Developer Tools detected! This has been flagged.`);
+                setWarningMessage(`🚨 Developer Tools detected! This has been flagged.`);
                 setShowWarning(true);
-            } else if (type === 'shortcut_blocked' || type === 'copy_attempt' || type === 'paste_attempt') {
-                setWarningMessage(`This action is disabled during the test.`);
+            } else if (type === 'shortcut_blocked') {
+                setWarningMessage(`⚠️ Keyboard shortcuts are disabled during the test.`);
+                setShowWarning(true);
+            } else if (type === 'copy_attempt' || type === 'paste_attempt') {
+                setWarningMessage(`⚠️ Copy/Paste is disabled during the test.`);
                 setShowWarning(true);
             }
         },
@@ -82,44 +82,47 @@ export default function TestTaking() {
         maxFullscreenExits: 2,
         enableCopyProtection: true,
         enableFullscreenMode: true,
-        enableTabDetection: isTabDetectionEnabled
+        enableTabDetection: session?.enable_tab_switch_detection ?? true
     });
 
-    // Timer
+    // Timer hook
     const timer = useTestTimer(
         session?.duration_minutes || 60,
-        () => handleSubmitTest(),
-        session?.started_at
+        () => {
+            // Auto-submit when time is up
+            handleSubmitTest();
+        },
+        session?.started_at // Sync with server start time
     );
 
-    const getTimerUrgency = () => {
-        if (timer.timeRemaining <= 60) return 'critical';
-        if (timer.timeRemaining <= 120) return 'danger';
-        if (timer.timeRemaining <= 300) return 'warning';
-        return 'normal';
-    };
-
-    // Report violation
+    // Report violation to backend
     const reportViolation = async (type: string) => {
         if (!session) return;
         try {
             const token = localStorage.getItem('access_token');
+            // Check if token exists
             if (!token) return;
+
             await fetch(`${API_BASE_URL}/tests/flag-violation/${session.attempt_id}?violation_type=${type}`, {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
             });
         } catch (error) {
             console.error('Failed to report violation:', error);
         }
     };
 
-    // Start test
+    // Start test session
     useEffect(() => {
         const startTest = async () => {
             try {
                 const token = localStorage.getItem('access_token');
-                if (!token) { navigate('/login'); return; }
+                if (!token) {
+                    navigate('/login');
+                    return;
+                }
 
                 const response = await fetch(`${API_BASE_URL}/tests/start`, {
                     method: 'POST',
@@ -134,65 +137,62 @@ export default function TestTaking() {
                     const data = await response.json();
                     setSession(data);
                     timer.start();
+                    // Fullscreen removed - must be user-initiated per browser security policy
                 } else {
+                    console.error('Start test failed:', await response.text());
+                    // navigate('/tests');
                     setLoading(false);
                 }
             } catch (error) {
                 console.error('Failed to start test:', error);
+                // navigate('/tests');
                 setLoading(false);
             } finally {
                 setLoading(false);
             }
         };
 
-        if (testId) startTest();
+        if (testId) {
+            startTest();
+        }
     }, [testId]);
 
-    // Answer handling
+    // Submit answer
     const handleSelectAnswer = useCallback((questionId: number, answer: string) => {
         setAnswers(prev => ({ ...prev, [questionId]: answer }));
     }, []);
 
-    const toggleFlagQuestion = (questionId: number) => {
-        setFlaggedQuestions(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(questionId)) newSet.delete(questionId);
-            else newSet.add(questionId);
-            return newSet;
-        });
-    };
-
-    // Auto-save
+    // Auto-save answers to localStorage (offline resilience)
     useEffect(() => {
         if (!session) return;
         const saveKey = `test_answers_${session.attempt_id}`;
 
+        // Save to localStorage every 5 seconds
         const localSaveInterval = setInterval(() => {
             localStorage.setItem(saveKey, JSON.stringify({
                 answers,
-                flaggedQuestions: Array.from(flaggedQuestions),
                 savedAt: new Date().toISOString(),
                 questionIndex: currentQuestionIndex
             }));
         }, 5000);
 
+        // Restore saved answers on mount
         const saved = localStorage.getItem(saveKey);
         if (saved) {
             try {
-                const { answers: savedAnswers, flaggedQuestions: savedFlags } = JSON.parse(saved);
+                const { answers: savedAnswers } = JSON.parse(saved);
                 if (savedAnswers && Object.keys(savedAnswers).length > 0) {
                     setAnswers(prev => ({ ...savedAnswers, ...prev }));
                 }
-                if (savedFlags?.length > 0) {
-                    setFlaggedQuestions(new Set(savedFlags));
-                }
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+                console.warn('Failed to restore saved answers');
+            }
         }
 
         return () => clearInterval(localSaveInterval);
-    }, [session, answers, currentQuestionIndex, flaggedQuestions]);
+    }, [session, answers, currentQuestionIndex]);
 
-    // Backend sync
+    // Sync answers to backend periodically (every 30s)
     useEffect(() => {
         if (!session) return;
         const token = localStorage.getItem('access_token');
@@ -201,13 +201,23 @@ export default function TestTaking() {
         const syncToBackend = async () => {
             for (const [questionId, answerText] of Object.entries(answers)) {
                 try {
+                    // Skip file placeholders
                     if (answerText.startsWith('FILE:')) continue;
+
                     await fetch(`${API_BASE_URL}/tests/submit-answer?attempt_id=${session.attempt_id}`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ question_id: parseInt(questionId), answer_text: answerText })
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            question_id: parseInt(questionId),
+                            answer_text: answerText
+                        })
                     });
-                } catch (e) { /* retry next interval */ }
+                } catch (e) {
+                    console.warn('Auto-sync failed, will retry');
+                }
             }
         };
 
@@ -215,22 +225,25 @@ export default function TestTaking() {
         return () => clearInterval(syncInterval);
     }, [session, answers]);
 
+    // Navigate questions
     const goToQuestion = (index: number) => {
         if (index >= 0 && index < (session?.questions.length || 0)) {
             setCurrentQuestionIndex(index);
-            setShowQuestionNav(false);
         }
     };
 
-    // Submit
+    // Submit test - with double-submit protection
     const isSubmittedRef = useRef(false);
 
     const handleSubmitTest = async () => {
-        if (!session || submitting || isSubmittedRef.current) return;
+        // Prevent double-submission
+        if (!session || submitting || isSubmittedRef.current) {
+            console.log('Submission blocked: already submitting or submitted');
+            return;
+        }
 
-        isSubmittedRef.current = true;
+        isSubmittedRef.current = true; // Mark as submitted
         setSubmitting(true);
-        setShowSubmitModal(false);
 
         try {
             const token = localStorage.getItem('access_token');
@@ -240,8 +253,10 @@ export default function TestTaking() {
                 return;
             }
 
+            // Upload global answer file (single file for all questions)
             if (globalAnswerFile) {
                 try {
+                    // Find first agent_analysis question ID for the file
                     const firstAgentQ = session.questions.find(q => q.question_type === 'agent_analysis');
                     const questionId = firstAgentQ?.id || session.questions[0].id;
 
@@ -250,359 +265,374 @@ export default function TestTaking() {
                     formData.append('attempt_id', session.attempt_id.toString());
                     formData.append('question_id', questionId.toString());
 
-                    const res = await fetch(`${UPLOAD_BASE_URL}/tests/upload-answer-file`, {
+                    const res = await fetch(`${API_BASE_URL}/tests/upload-answer-file`, {
                         method: 'POST',
-                        headers: { 'Authorization': `Bearer ${token}` },
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        },
                         body: formData
                     });
 
-                    if (!res.ok) throw new Error('File upload failed');
+                    if (!res.ok) {
+                        throw new Error('File upload failed');
+                    }
                 } catch (e) {
-                    alert('Failed to upload your file. Please try again.');
+                    console.error('File upload failed', e);
+                    alert('Failed to upload your Excel file. Please try again.');
                     isSubmittedRef.current = false;
                     setSubmitting(false);
                     return;
                 }
             }
 
+            // Submit all text answers IN PARALLEL for speed
             const answerPromises = Object.entries(answers)
                 .filter(([_, answerText]) => !answerText.startsWith('FILE:'))
                 .map(async ([questionId, answerText]) => {
                     try {
-                        await fetch(`${API_BASE_URL}/tests/submit-answer?attempt_id=${session.attempt_id}`, {
+                        const res = await fetch(`${API_BASE_URL}/tests/submit-answer?attempt_id=${session.attempt_id}`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                            body: JSON.stringify({ question_id: parseInt(questionId), answer_text: answerText })
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                question_id: parseInt(questionId),
+                                answer_text: answerText
+                            })
                         });
+                        if (!res.ok) throw new Error(`Q${questionId} failed`);
                         return { questionId, success: true };
                     } catch (e) {
+                        console.error(`Failed to submit answer for question ${questionId}`, e);
                         return { questionId, success: false };
                     }
                 });
 
+            // Wait for all answers to submit (don't fail on individual errors)
             await Promise.allSettled(answerPromises);
 
+
+            // Complete test
             const response = await fetch(`${API_BASE_URL}/tests/complete/${session.attempt_id}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ attempt_id: session.attempt_id, tab_switches: antiCheat.tabSwitches })
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    attempt_id: session.attempt_id,
+                    tab_switches: antiCheat.tabSwitches
+                })
             });
 
             if (response.ok) {
                 const result = await response.json();
                 antiCheat.exitFullscreen();
-                localStorage.removeItem(`test_answers_${session.attempt_id}`);
                 navigate(`/test-result/${session.attempt_id}`, { state: { result } });
             } else {
-                throw new Error('Failed to complete test');
+                const errText = await response.text();
+                throw new Error(errText || 'Failed to complete test');
             }
         } catch (error) {
-            alert(`Failed to submit test. Please try again.`);
+            console.error('Failed to submit test:', error);
+            alert(`Failed to submit test: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
         } finally {
             setSubmitting(false);
         }
     };
 
-    // Stats
-    const answeredCount = session ? Object.keys(answers).filter(id =>
-        session.questions.some(q => q.id === parseInt(id) && answers[parseInt(id)]?.trim())
-    ).length : 0;
-    const flaggedCount = flaggedQuestions.size;
-
-    // Precompute document URLs for fast rendering
-    const currentQuestion = session?.questions[currentQuestionIndex];
-    const processedDocs = useMemo(() => {
-        if (!currentQuestion?.documents) return [];
-        return currentQuestion.documents.map(d => {
-            const isOffice = /\.(docx?|xlsx?|pptx?)$/i.test(d.content || '');
-            let contentUrl = d.content;
-
-            if (d.content?.startsWith('/')) {
-                contentUrl = getMediaUrl(d.content);
-            } else if (d.content?.startsWith('http')) {
-                if (isOffice) {
-                    contentUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.content)}`;
-                } else {
-                    contentUrl = `${API_BASE_URL}/tests/content-proxy?url=${encodeURIComponent(d.content)}`;
-                }
-            }
-            return { id: d.id, title: d.title, content: contentUrl };
-        });
-    }, [currentQuestion?.documents]);
-
-    const processedHtmlUrl = useMemo(() => {
-        if (!currentQuestion?.html_content) return undefined;
-        if (currentQuestion.html_content.startsWith('/')) {
-            return getMediaUrl(currentQuestion.html_content);
-        }
-        if (currentQuestion.html_content.startsWith('http')) {
-            return `${API_BASE_URL}/tests/content-proxy?url=${encodeURIComponent(currentQuestion.html_content)}`;
-        }
-        return undefined;
-    }, [currentQuestion?.html_content]);
-
     if (loading) {
         return (
             <div className="test-loading">
                 <div className="spinner"></div>
-                <p>Preparing your assessment...</p>
+                <p>Loading test...</p>
             </div>
         );
     }
 
-    if (!session || !session.questions?.length) {
+    if (!session) {
         return (
             <div className="test-error">
-                <h2>Unable to Load Test</h2>
-                <p>Please try again or contact support.</p>
+                <p>Failed to load test. Please try again.</p>
                 <button onClick={() => navigate('/opportunities')}>Back to Opportunities</button>
             </div>
         );
     }
 
+    // Handle empty questions case
+    if (!session.questions || session.questions.length === 0) {
+        return (
+            <div className="test-error">
+                <p>No questions available for this test.</p>
+                <button onClick={() => navigate('/opportunities')}>Back to Opportunities</button>
+            </div>
+        );
+    }
+
+    const currentQuestion = session.questions[currentQuestionIndex];
+    if (!currentQuestion) {
+        return (
+            <div className="test-error">
+                <p>Question not found.</p>
+                <button onClick={() => navigate('/opportunities')}>Back to Opportunities</button>
+            </div>
+        );
+    }
+    // const answeredCount = Object.keys(answers).length;
+    // const progress = (answeredCount / session.total_questions) * 100;
+
     return (
         <div className="test-taking-page">
             {/* Warning Modal */}
             {showWarning && (
-                <div className="modal-overlay" onClick={() => setShowWarning(false)}>
-                    <div className="warning-modal" onClick={e => e.stopPropagation()}>
+                <div className="warning-overlay">
+                    <div className="warning-modal">
+                        <div className="warning-icon">⚠️</div>
                         <p>{warningMessage}</p>
-                        <button onClick={() => setShowWarning(false)}>OK</button>
-                    </div>
-                </div>
-            )}
-
-            {/* Submit Modal */}
-            {showSubmitModal && (
-                <div className="modal-overlay">
-                    <div className="submit-modal">
-                        <h3>Submit Test?</h3>
-                        <div className="submit-stats">
-                            <div className="stat-item">
-                                <span className="stat-value success">{answeredCount}</span>
-                                <span className="stat-label">Answered</span>
-                            </div>
-                            <div className="stat-item">
-                                <span className="stat-value error">{session.total_questions - answeredCount}</span>
-                                <span className="stat-label">Unanswered</span>
-                            </div>
-                            {flaggedCount > 0 && (
-                                <div className="stat-item">
-                                    <span className="stat-value warning">{flaggedCount}</span>
-                                    <span className="stat-label">Flagged</span>
-                                </div>
-                            )}
-                        </div>
-                        {session.total_questions - answeredCount > 0 && (
-                            <p className="submit-warning">You have unanswered questions.</p>
-                        )}
-                        <div className="modal-actions">
-                            <button className="btn-secondary" onClick={() => setShowSubmitModal(false)}>Review</button>
-                            <button className="btn-primary" onClick={handleSubmitTest} disabled={submitting}>
-                                {submitting ? 'Submitting...' : 'Submit'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Question Nav Popup */}
-            {showQuestionNav && (
-                <div className="modal-overlay" onClick={() => setShowQuestionNav(false)}>
-                    <div className="question-nav-popup" onClick={e => e.stopPropagation()}>
-                        <div className="nav-popup-header">
-                            <h3>Questions</h3>
-                            <button className="close-btn" onClick={() => setShowQuestionNav(false)}>×</button>
-                        </div>
-                        <div className="question-grid">
-                            {session.questions.map((q, idx) => (
-                                <button
-                                    key={q.id}
-                                    className={`q-btn ${idx === currentQuestionIndex ? 'current' : ''} ${answers[q.id]?.trim() ? 'answered' : ''} ${flaggedQuestions.has(q.id) ? 'flagged' : ''}`}
-                                    onClick={() => goToQuestion(idx)}
-                                >
-                                    {idx + 1}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="nav-legend">
-                            <span><i className="dot current"></i> Current</span>
-                            <span><i className="dot answered"></i> Answered</span>
-                            <span><i className="dot flagged"></i> Flagged</span>
-                        </div>
+                        <button onClick={() => setShowWarning(false)}>I Understand</button>
                     </div>
                 </div>
             )}
 
             {/* Header */}
             <header className="test-header">
-                <div className="header-left">
-                    <h1 className="test-title">{session.test_title}</h1>
+                <div className="test-info">
+                    <h1>{session.test_title}</h1>
+                    <span className="question-counter">
+                        Question {currentQuestionIndex + 1} of {session.total_questions}
+                    </span>
                 </div>
 
-                <div className={`timer ${getTimerUrgency()}`}>
-                    <span className="timer-icon">⏱</span>
-                    <span className="timer-value">{timer.formattedTime}</span>
-                </div>
+                {/* Question nav grid removed - redundant with Question X of Y */}
 
-                <div className="header-right">
-                    <button className="nav-toggle" onClick={() => setShowQuestionNav(true)}>
-                        <span>{currentQuestionIndex + 1}/{session.total_questions}</span>
-                        <span className="toggle-icon">▼</span>
-                    </button>
-                    <button className="btn-submit" onClick={() => setShowSubmitModal(true)}>
-                        Submit
-                    </button>
+                <div className="test-timer" data-urgent={timer.timeRemaining < 300}>
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z" />
+                    </svg>
+                    <span>{timer.formattedTime}</span>
                 </div>
             </header>
 
-            {/* Progress */}
-            <div className="progress-track">
-                <div className="progress-fill" style={{ width: `${(answeredCount / session.total_questions) * 100}%` }}></div>
-            </div>
+            {/* Progress Bar removed as per request */}
 
-            {/* Flagged Banner */}
+            {/* Anti-cheat status */}
             {antiCheat.isFlagged && (
-                <div className="flagged-banner">Test flagged for review</div>
+                <div className="flagged-banner">
+                    ⚠️ Your test has been flagged for review due to suspicious activity
+                </div>
             )}
 
-            {/* Main Content - Full Width */}
-            <main className="test-main">
-                <div className="question-card">
-                    {/* Question Header */}
-                    <div className="q-header">
-                        <div className="q-meta">
-                            <span className="q-number">Q{currentQuestionIndex + 1}</span>
-                            <span className={`q-type ${currentQuestion?.question_type}`}>
-                                {currentQuestion?.question_type.replace(/_/g, ' ')}
-                            </span>
-                            <span className="q-marks">{currentQuestion?.marks} marks</span>
-                        </div>
-                        <button
-                            className={`flag-btn ${flaggedQuestions.has(currentQuestion!.id) ? 'active' : ''}`}
-                            onClick={() => toggleFlagQuestion(currentQuestion!.id)}
+            {/* Main Content */}
+            <div className="test-content">
+                {/* Sidebar Removed */}
+
+                {/* Question Display - All questions mounted, only active visible (for instant switching) */}
+                <main className="question-area">
+                    {session.questions.map((question, qIndex) => (
+                        <div
+                            key={question.id}
+                            className="question-card"
+                            style={{ display: qIndex === currentQuestionIndex ? 'block' : 'none' }}
                         >
-                            {flaggedQuestions.has(currentQuestion!.id) ? '🚩 Flagged' : '⚑ Flag'}
-                        </button>
-                    </div>
-
-                    {/* Question Content */}
-                    <div className="q-content" key={`content-${currentQuestion?.id}`}>
-                        <p className="q-text">{currentQuestion?.question_text}</p>
-
-                        {/* MCQ */}
-                        {currentQuestion?.question_type === 'mcq' && currentQuestion.options && (
-                            <div className="options">
-                                {currentQuestion.options.map((opt, i) => (
-                                    <label key={i} className={`option ${answers[currentQuestion.id] === opt ? 'selected' : ''}`}>
-                                        <input
-                                            type="radio"
-                                            name={`q-${currentQuestion.id}`}
-                                            checked={answers[currentQuestion.id] === opt}
-                                            onChange={() => handleSelectAnswer(currentQuestion.id, opt)}
-                                        />
-                                        <span className="opt-letter">{String.fromCharCode(65 + i)}</span>
-                                        <span className="opt-text">{opt}</span>
-                                    </label>
-                                ))}
+                            <div className="question-header">
+                                <span className="question-type">{question.question_type.toUpperCase()}</span>
+                                <span className="question-marks">{question.marks} marks</span>
                             </div>
-                        )}
 
-                        {/* Text */}
-                        {(currentQuestion?.question_type === 'text_annotation' ||
-                          currentQuestion?.question_type === 'text' ||
-                          currentQuestion?.question_type === 'reading') && (
-                            <textarea
-                                className="answer-textarea"
-                                placeholder="Type your answer..."
-                                value={answers[currentQuestion.id] || ''}
-                                onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
-                            />
-                        )}
-
-                        {/* Image */}
-                        {(currentQuestion?.question_type === 'image_annotation' ||
-                          currentQuestion?.question_type === 'image') && (
-                            <div className="media-answer">
-                                {currentQuestion.media_url && (
-                                    <img src={getMediaUrl(currentQuestion.media_url)} alt="Question" />
-                                )}
-                                <textarea
-                                    placeholder="Describe what you see..."
-                                    value={answers[currentQuestion.id] || ''}
-                                    onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
-                                />
+                            <div className="question-text">
+                                {question.question_text}
                             </div>
-                        )}
 
-                        {/* Video */}
-                        {(currentQuestion?.question_type === 'video_annotation' ||
-                          currentQuestion?.question_type === 'video') && (
-                            <div className="media-answer">
-                                {currentQuestion.media_url && (
-                                    <video controls src={getMediaUrl(currentQuestion.media_url)} />
-                                )}
-                                <textarea
-                                    placeholder="Describe what you observed..."
-                                    value={answers[currentQuestion.id] || ''}
-                                    onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
-                                />
-                            </div>
-                        )}
-
-                        {/* Agent Analysis */}
-                        {currentQuestion?.question_type === 'agent_analysis' && (
-                            <div className="agent-area">
-                                <InPageBrowser
-                                    key={`browser-${currentQuestion.id}`}
-                                    htmlUrl={processedHtmlUrl}
-                                    htmlContent={
-                                        currentQuestion.html_content?.startsWith('/') ||
-                                        currentQuestion.html_content?.startsWith('http')
-                                            ? undefined
-                                            : currentQuestion.html_content || ''
-                                    }
-                                    documents={processedDocs}
-                                />
-                                <div className="file-upload">
-                                    <p className="upload-label">Upload Final Report (Excel)</p>
-                                    <input
-                                        type="file"
-                                        id="file-input"
-                                        accept=".xlsx,.xls,.csv"
-                                        onChange={(e) => e.target.files?.[0] && setGlobalAnswerFile(e.target.files[0])}
-                                        hidden
-                                    />
-                                    <label htmlFor="file-input" className={`upload-zone ${globalAnswerFile ? 'has-file' : ''}`}>
-                                        {globalAnswerFile ? `✓ ${globalAnswerFile.name}` : 'Click to upload .xlsx/.csv'}
-                                    </label>
+                            {/* MCQ Options */}
+                            {question.question_type === 'mcq' && question.options && (
+                                <div className="options-list">
+                                    {question.options.map((option, idx) => (
+                                        <label
+                                            key={idx}
+                                            className={`option-item ${answers[question.id] === option ? 'selected' : ''}`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name={`question-${question.id}`}
+                                                value={option}
+                                                checked={answers[question.id] === option}
+                                                onChange={() => handleSelectAnswer(question.id, option)}
+                                            />
+                                            <span className="option-letter">{String.fromCharCode(65 + idx)}</span>
+                                            <span className="option-text">{option}</span>
+                                        </label>
+                                    ))}
                                 </div>
-                            </div>
-                        )}
-                    </div>
+                            )}
 
-                    {/* Navigation */}
-                    <div className="q-nav">
+                            {/* Text Annotation */}
+                            {(question.question_type === 'text_annotation' || question.question_type === 'text' || question.question_type === 'reading') && (
+                                <div className="text-annotation-area">
+                                    <textarea
+                                        placeholder="Enter your annotation..."
+                                        value={answers[question.id] || ''}
+                                        onChange={(e) => handleSelectAnswer(question.id, e.target.value)}
+                                        rows={6}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Image Annotation */}
+                            {(question.question_type === 'image_annotation' || question.question_type === 'image') && (
+                                <div className="image-annotation-area">
+                                    {question.media_url && (
+                                        <img src={getMediaUrl(question.media_url)} alt="Annotation target" />
+                                    )}
+                                    <textarea
+                                        placeholder="Describe what you see in the image..."
+                                        value={answers[question.id] || ''}
+                                        onChange={(e) => handleSelectAnswer(question.id, e.target.value)}
+                                        rows={4}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Video Annotation */}
+                            {(question.question_type === 'video_annotation' || question.question_type === 'video') && (
+                                <div className="video-annotation-area">
+                                    {question.media_url && (
+                                        <video controls>
+                                            <source src={getMediaUrl(question.media_url)} type="video/mp4" />
+                                            Your browser does not support video playback.
+                                        </video>
+                                    )}
+                                    <textarea
+                                        placeholder="Describe what you observed in the video..."
+                                        value={answers[question.id] || ''}
+                                        onChange={(e) => handleSelectAnswer(question.id, e.target.value)}
+                                        rows={4}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Agent Analysis */}
+                            {question.question_type === 'agent_analysis' && (
+                                <div className="agent-analysis-area">
+                                    <InPageBrowser
+                                        htmlUrl={
+                                            question.html_content?.startsWith('/') ||
+                                                question.html_content?.startsWith('http')
+                                                ? (question.html_content.startsWith('/')
+                                                    ? getMediaUrl(question.html_content)
+                                                    : `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/tests/content-proxy?url=${encodeURIComponent(question.html_content)}`)
+                                                : undefined
+                                        }
+                                        htmlContent={
+                                            question.html_content?.startsWith('/') ||
+                                                question.html_content?.startsWith('http')
+                                                ? undefined
+                                                : question.html_content || ''
+                                        }
+                                        documents={(question.documents || []).map(d => {
+                                            const isOffice = /\.(docx?|xlsx?|pptx?)$/i.test(d.content || '');
+                                            let contentUrl = d.content;
+
+                                            if (d.content?.startsWith('/')) {
+                                                contentUrl = getMediaUrl(d.content);
+                                            } else if (d.content?.startsWith('http')) {
+                                                if (isOffice) {
+                                                    contentUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.content)}`;
+                                                } else {
+                                                    contentUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/tests/content-proxy?url=${encodeURIComponent(d.content)}`;
+                                                }
+                                            }
+
+                                            return {
+                                                id: d.id,
+                                                title: d.title,
+                                                content: contentUrl
+                                            };
+                                        })}
+                                    />
+                                    <div className="agent-answer-section">
+                                        <label>Upload Your Final Report</label>
+                                        <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
+                                            Submit ONE Excel file with all your answers for all questions
+                                        </p>
+                                        <div className="file-upload-area">
+                                            <input
+                                                type="file"
+                                                id="global-file-upload"
+                                                accept=".xlsx,.xls,.csv"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                        setGlobalAnswerFile(file);
+                                                    }
+                                                }}
+                                                style={{ display: 'none' }}
+                                            />
+                                            <label
+                                                htmlFor="global-file-upload"
+                                                className="file-upload-label"
+                                                style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    padding: '24px',
+                                                    border: globalAnswerFile ? '2px solid #22c55e' : '2px dashed #e2e8f0',
+                                                    borderRadius: '12px',
+                                                    cursor: 'pointer',
+                                                    background: globalAnswerFile ? '#f0fdf4' : '#f8fafc',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                            >
+                                                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={globalAnswerFile ? '#22c55e' : '#64748b'} strokeWidth="1.5">
+                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                                    <polyline points="17 8 12 3 7 8" />
+                                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                                </svg>
+                                                <span style={{ marginTop: '8px', fontWeight: 600, color: globalAnswerFile ? '#16a34a' : '#1e293b' }}>
+                                                    {globalAnswerFile
+                                                        ? `✅ ${globalAnswerFile.name}`
+                                                        : 'Click to upload Excel file'}
+                                                </span>
+                                                <span style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                                                    Supports .xlsx, .xls, .csv
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+
+                    {/* Navigation Buttons */}
+                    <div className="question-actions">
                         <button
-                            className="btn-nav"
+                            className="btn-secondary"
                             onClick={() => goToQuestion(currentQuestionIndex - 1)}
                             disabled={currentQuestionIndex === 0}
                         >
-                            ← Prev
+                            ← Previous
                         </button>
-                        <span className="q-indicator">{currentQuestionIndex + 1} / {session.total_questions}</span>
+
                         {currentQuestionIndex === session.questions.length - 1 ? (
-                            <button className="btn-nav primary" onClick={() => setShowSubmitModal(true)}>
-                                Submit →
+                            <button
+                                className="btn-submit"
+                                onClick={handleSubmitTest}
+                                disabled={submitting}
+                            >
+                                {submitting ? 'Submitting...' : 'Submit Test'}
                             </button>
                         ) : (
-                            <button className="btn-nav primary" onClick={() => goToQuestion(currentQuestionIndex + 1)}>
+                            <button
+                                className="btn-primary"
+                                onClick={() => goToQuestion(currentQuestionIndex + 1)}
+                            >
                                 Next →
                             </button>
                         )}
                     </div>
-                </div>
-            </main>
+                </main>
+            </div>
         </div>
     );
 }

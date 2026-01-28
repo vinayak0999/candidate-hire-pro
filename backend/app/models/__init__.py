@@ -11,7 +11,6 @@ from .profile import (
     profile_skills
 )
 from .notification import Notification, UserNotification, NotificationType, TargetAudience
-from .resume_job import ResumeParsingJob, ResumeParsingStatus
 
 __all__ = [
     "User", "UserRole",
@@ -26,7 +25,5 @@ __all__ = [
     "SkillCategory", "ProficiencyLevel", "LanguageProficiency",
     "profile_skills",
     # Notification models
-    "Notification", "UserNotification", "NotificationType", "TargetAudience",
-    # Resume parsing job
-    "ResumeParsingJob", "ResumeParsingStatus"
+    "Notification", "UserNotification", "NotificationType", "TargetAudience"
 ]

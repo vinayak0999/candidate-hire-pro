@@ -93,7 +93,7 @@ class VectorSearchService:
         if not client:
             return [0.0] * 768  # Return zero vector if client unavailable
         result = client.models.embed_content(
-            model="embedding-001",
+            model="text-embedding-004",
             contents=text,
         )
         return result.embeddings[0].values
@@ -106,7 +106,7 @@ class VectorSearchService:
         if not client:
             return [0.0] * 768  # Return zero vector if client unavailable
         result = client.models.embed_content(
-            model="embedding-001",
+            model="text-embedding-004",
             contents=text,
         )
         return result.embeddings[0].values

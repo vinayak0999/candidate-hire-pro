@@ -60,9 +60,6 @@ interface CandidateProfile {
     work_experience: WorkExperience[];
     projects: Project[];
     skills: Skill[];
-    // Wizard data
-    has_data_annotation_experience: boolean | null;
-    why_annotation: string | null;
 }
 
 // Helper function to parse bullet points from description
@@ -134,22 +131,11 @@ export default function Profile({ user }: ProfileProps) {
                 setUploadProgress(prev => Math.min(prev + 10, 90));
             }, 500);
 
-            // Backend now returns {status: "processing", job_id: N} immediately
-            await profileApi.uploadResume(file);
+            const data = await profileApi.uploadResume(file);
 
             clearInterval(progressInterval);
             setUploadProgress(100);
-
-            // Show success - resume is processing in background
-            // Refetch profile after a delay to get updated data
-            setTimeout(async () => {
-                try {
-                    const data = await profileApi.getMyProfile();
-                    setProfile(data);
-                } catch (e) {
-                    // Ignore - profile may not be ready yet
-                }
-            }, 3000);
+            setProfile(data);
 
             setTimeout(() => setUploadProgress(0), 1000);
         } catch (err: any) {
@@ -242,27 +228,6 @@ export default function Profile({ user }: ProfileProps) {
                         <div className="tab-panel-header">
                             <h3>💼 Work Experience</h3>
                         </div>
-
-                        {/* Data Annotation Interest Card - From Profile Wizard */}
-                        {profile && profile.has_data_annotation_experience !== null && (
-                            <div className="annotation-interest-card">
-                                <div className="annotation-header">
-                                    <span className="annotation-icon">🤖</span>
-                                    <div>
-                                        <h4>Data Annotation Experience</h4>
-                                        <span className={`annotation-badge ${profile?.has_data_annotation_experience ? 'yes' : 'no'}`}>
-                                            {profile?.has_data_annotation_experience ? 'Experienced' : 'New to this field'}
-                                        </span>
-                                    </div>
-                                </div>
-                                {profile?.why_annotation && (
-                                    <p className="annotation-reason">
-                                        <strong>Interest:</strong> {profile?.why_annotation}
-                                    </p>
-                                )}
-                            </div>
-                        )}
-
                         {profile?.work_experience && profile.work_experience.length > 0 ? (
                             <div className="entries-list">
                                 {profile.work_experience.map(exp => (
@@ -297,13 +262,10 @@ export default function Profile({ user }: ProfileProps) {
                                 ))}
                             </div>
                         ) : (
-                            <div className="fresher-card">
-                                <div className="fresher-icon">🎓</div>
-                                <h4>Fresh Graduate</h4>
-                                <p>No professional work experience yet. Ready to start your career journey!</p>
-                                <div className="fresher-tips">
-                                    <span>Your academic background and projects showcase your potential.</span>
-                                </div>
+                            <div className="empty-state">
+                                <span className="empty-state-icon">🏢</span>
+                                <h4 className="empty-state-title">No Work Experience</h4>
+                                <p className="empty-state-text">Upload your resume to automatically populate your work history.</p>
                             </div>
                         )}
                     </div>
@@ -383,32 +345,21 @@ export default function Profile({ user }: ProfileProps) {
                             <h3>⚡ Skills & Projects</h3>
                         </div>
 
-                        {/* Skills Section - Always show */}
-                        <div className="skills-section">
-                            <h4>Technical Skills</h4>
-                            <div className="skills-grid">
-                                {/* Data Annotation skill from wizard - Priority display */}
-                                {profile?.has_data_annotation_experience && (
-                                    <span className="skill-chip annotation-skill">
-                                        🤖 Data Annotation
-                                    </span>
-                                )}
-                                {profile?.skills && profile.skills.length > 0 ? (
-                                    profile.skills.map(skill => (
+                        {profile?.skills && profile.skills.length > 0 && (
+                            <div className="skills-section">
+                                <h4>Technical Skills</h4>
+                                <div className="skills-grid">
+                                    {profile.skills.map(skill => (
                                         <span
                                             key={skill.id}
                                             className={`skill-chip ${skill.category || 'other'}`}
                                         >
                                             {skill.display_name}
                                         </span>
-                                    ))
-                                ) : (
-                                    !profile?.has_data_annotation_experience && (
-                                        <span className="no-skills-text">Upload resume to extract skills</span>
-                                    )
-                                )}
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {profile?.projects && profile.projects.length > 0 ? (
                             <div className="skills-section">
@@ -483,83 +434,70 @@ export default function Profile({ user }: ProfileProps) {
             </div>
 
             <div className="profile-layout">
-                {/* Left Sidebar - Profile Card (Fixed Template) */}
+                {/* Left Sidebar - Profile Card */}
                 <div className="profile-card">
-                    <div className="profile-card-banner"></div>
-                    <div className="profile-card-body">
-                        <div className="profile-avatar-wrapper">
-                            <img
-                                src={user?.avatar_url || getAvatarUrl(user?.name)}
-                                alt="Profile"
-                                className="profile-avatar"
-                            />
-                        </div>
+                    <div className="profile-avatar-section">
+                        <img
+                            src={user?.avatar_url || getAvatarUrl(user?.name)}
+                            alt="Profile"
+                            className="profile-avatar"
+                        />
                         <h2 className="profile-name">{user?.name || 'User'}</h2>
-                        <p className="profile-email">{user?.email || '-'}</p>
-
-                        {/* Role Badge - Fixed: Show role or Fresher */}
-                        <span className="profile-role-badge">
-                            {profile?.current_role || (profile?.years_of_experience && profile.years_of_experience > 0
-                                ? 'Professional'
-                                : 'Fresher')}
-                        </span>
-
-                        {/* Fixed Template Info Tags - Always show structure */}
-                        <div className="profile-info-tags">
-                            {/* Education - Always show */}
-                            <span className="profile-info-tag">
-                                <span className="tag-icon">🎓</span>
-                                <span className="tag-text">{user?.degree || 'Not specified'}</span>
+                        <p className="profile-email">{user?.email}</p>
+                        {profile?.current_role && (
+                            <span className="profile-role-badge">
+                                {profile.current_role}
                             </span>
+                        )}
+                    </div>
 
-                            {/* Branch - Always show */}
-                            <span className="profile-info-tag">
-                                <span className="tag-icon">📚</span>
-                                <span className="tag-text">{user?.branch || 'Not specified'}</span>
-                            </span>
-
-                            {/* Batch - Always show */}
-                            <span className="profile-info-tag">
-                                <span className="tag-icon">📅</span>
-                                <span className="tag-text">Batch {user?.batch || '-'}</span>
-                            </span>
-
-                            {/* Company - Show if has experience, else show Fresher note */}
-                            <span className="profile-info-tag">
-                                <span className="tag-icon">🏢</span>
-                                <span className="tag-text">
-                                    {profile?.current_company || (profile?.years_of_experience && profile.years_of_experience > 0
-                                        ? 'Not specified'
-                                        : 'Fresher - No company yet')}
+                    <div className="profile-stats">
+                        {user?.degree && (
+                            <div className="stat-row">
+                                <span className="stat-label">
+                                    <span className="icon">🎓</span> Degree
                                 </span>
-                            </span>
-
-                            {/* Experience - Always show */}
-                            <span className="profile-info-tag">
-                                <span className="tag-icon">⏳</span>
-                                <span className="tag-text">
-                                    {profile?.years_of_experience && profile.years_of_experience > 0
-                                        ? `${profile.years_of_experience} years exp`
-                                        : 'Fresher'}
+                                <span className="stat-value">{user.degree}</span>
+                            </div>
+                        )}
+                        {user?.branch && (
+                            <div className="stat-row">
+                                <span className="stat-label">
+                                    <span className="icon">📚</span> Branch
                                 </span>
-                            </span>
-
-                            {/* Data Annotation Interest - Show if answered */}
-                            {profile && profile.has_data_annotation_experience !== null && (
-                                <span className={`profile-info-tag ${profile?.has_data_annotation_experience ? 'highlight' : ''}`}>
-                                    <span className="tag-icon">🤖</span>
-                                    <span className="tag-text">
-                                        {profile?.has_data_annotation_experience
-                                            ? 'Data Annotation Exp.'
-                                            : 'New to Data Annotation'}
-                                    </span>
+                                <span className="stat-value">{user.branch}</span>
+                            </div>
+                        )}
+                        {user?.batch && (
+                            <div className="stat-row">
+                                <span className="stat-label">
+                                    <span className="icon">📅</span> Batch
                                 </span>
-                            )}
-                        </div>
+                                <span className="stat-value">{user.batch}</span>
+                            </div>
+                        )}
+                        {profile?.years_of_experience && (
+                            <div className="stat-row">
+                                <span className="stat-label">
+                                    <span className="icon">⏳</span> Experience
+                                </span>
+                                <span className="stat-value">{profile.years_of_experience} years</span>
+                            </div>
+                        )}
+                        {profile?.current_company && (
+                            <div className="stat-row">
+                                <span className="stat-label">
+                                    <span className="icon">🏢</span> Company
+                                </span>
+                                <span className="stat-value">{profile.current_company}</span>
+                            </div>
+                        )}
+                    </div>
 
-                        {/* Profile Links - Always show section */}
+                    {/* Profile Links */}
+                    {(profile?.linkedin_url || profile?.github_url) && (
                         <div className="profile-links">
-                            {profile?.linkedin_url ? (
+                            {profile.linkedin_url && (
                                 <a
                                     href={profile.linkedin_url}
                                     target="_blank"
@@ -568,10 +506,8 @@ export default function Profile({ user }: ProfileProps) {
                                 >
                                     💼 LinkedIn
                                 </a>
-                            ) : (
-                                <span className="profile-link-btn disabled">💼 LinkedIn</span>
                             )}
-                            {profile?.github_url ? (
+                            {profile.github_url && (
                                 <a
                                     href={profile.github_url}
                                     target="_blank"
@@ -580,11 +516,9 @@ export default function Profile({ user }: ProfileProps) {
                                 >
                                     🐙 GitHub
                                 </a>
-                            ) : (
-                                <span className="profile-link-btn disabled">🐙 GitHub</span>
                             )}
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Right Content Area */}

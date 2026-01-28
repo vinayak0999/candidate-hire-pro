@@ -21,10 +21,10 @@ class UserLogin(BaseModel):
 
 class UserProfile(UserBase):
     id: int
-    degree: Optional[str] = None
-    branch: Optional[str] = None
-    batch: Optional[str] = None
-    college: Optional[str] = None
+    degree: str
+    branch: str
+    batch: str
+    college: str
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
     role: UserRole

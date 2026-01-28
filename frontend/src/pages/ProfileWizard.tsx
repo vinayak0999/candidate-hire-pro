@@ -13,6 +13,8 @@ interface ProfileData {
 
 export default function ProfileWizard() {
     const [loading, setLoading] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
     const [dragActive, setDragActive] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
@@ -87,26 +89,38 @@ export default function ProfileWizard() {
                 profileData.whyAnnotation.trim()
             );
 
-            // If resume is uploaded, start parsing in background (fire-and-forget)
-            // User won't wait for this - it processes silently
+            // If resume is uploaded, parse it in background
             if (profileData.resume) {
-                // Don't await - let it run in background
-                profileApi.uploadResume(profileData.resume).catch(err => {
-                    console.warn('Background resume parsing:', err);
-                });
+                setUploading(true);
+                setUploadProgress(10);
+
+                const progressInterval = setInterval(() => {
+                    setUploadProgress(prev => {
+                        if (prev >= 90) {
+                            clearInterval(progressInterval);
+                            return prev;
+                        }
+                        return prev + 10;
+                    });
+                }, 300);
+
+                try {
+                    await profileApi.uploadResume(profileData.resume);
+                    clearInterval(progressInterval);
+                    setUploadProgress(100);
+                } catch (err: any) {
+                    clearInterval(progressInterval);
+                    console.warn('Resume upload may still be processing:', err);
+                }
             }
 
-            // Reset loading before navigation
-            setLoading(false);
-
-            // Navigate to dashboard immediately - don't wait for resume parsing
+            // Navigate to dashboard immediately
             navigate('/dashboard');
         } catch (err: any) {
-            console.error('Profile setup error:', err);
             setError(err.response?.data?.detail || 'Something went wrong. Please try again.');
         } finally {
-            // Always reset loading on completion or error
             setLoading(false);
+            setUploading(false);
         }
     };
 
@@ -290,7 +304,18 @@ export default function ProfileWizard() {
                                 </p>
                             </div>
 
-
+                            {/* Upload Progress */}
+                            {uploading && (
+                                <div className="upload-progress-bar">
+                                    <div
+                                        className="progress-fill"
+                                        style={{ width: `${uploadProgress}%` }}
+                                    />
+                                    <span className="progress-text">
+                                        {uploadProgress < 100 ? '🤖 Parsing resume with AI...' : '✅ Done!'}
+                                    </span>
+                                </div>
+                            )}
 
                             {/* Submit Button */}
                             <button
@@ -302,7 +327,7 @@ export default function ProfileWizard() {
                                 {loading ? (
                                     <>
                                         <span className="spinner" />
-                                        Setting up your profile...
+                                        {uploading ? 'Processing Resume...' : 'Setting up...'}
                                     </>
                                 ) : (
                                     <>

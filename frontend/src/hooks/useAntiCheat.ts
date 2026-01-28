@@ -194,10 +194,8 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
         return () => document.removeEventListener('keydown', blockShortcuts);
     }, [onViolation]);
 
-    // Window Blur Detection (Alt+Tab, etc.) - Only if tab detection is enabled
+    // Window Blur Detection (Alt+Tab, etc.)
     useEffect(() => {
-        if (!enableTabDetection) return;
-
         const handleBlur = () => {
             const newCount = stateRef.current.tabSwitches + 1;
             setState(prev => ({
@@ -210,7 +208,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
 
         window.addEventListener('blur', handleBlur);
         return () => window.removeEventListener('blur', handleBlur);
-    }, [onViolation, maxTabSwitches, enableTabDetection]);
+    }, [onViolation, maxTabSwitches]);
 
     // Request fullscreen
     const requestFullscreen = useCallback(async () => {
