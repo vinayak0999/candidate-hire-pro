@@ -2,15 +2,6 @@ import { useState, useEffect } from 'react';
 import InPageBrowser from '../components/InPageBrowser';
 import './InPageBrowserDemo.css';
 
-// Simulated document data
-const SAMPLE_DOCUMENTS = [
-    { id: 'doc-1', title: 'Problem Statement' },
-    { id: 'doc-2', title: 'Input Format' },
-    { id: 'doc-3', title: 'Output Format' },
-    { id: 'doc-4', title: 'Constraints' },
-    { id: 'doc-5', title: 'Examples' },
-];
-
 // Simulated content (would come from API)
 const DOCUMENT_CONTENT: Record<string, string> = {
     'doc-1': `
@@ -63,6 +54,15 @@ Output:
 -1</code></pre>
     `,
 };
+
+// Simulated document data
+const SAMPLE_DOCUMENTS = [
+    { id: 'doc-1', title: 'Problem Statement', content: DOCUMENT_CONTENT['doc-1'] },
+    { id: 'doc-2', title: 'Input Format', content: DOCUMENT_CONTENT['doc-2'] },
+    { id: 'doc-3', title: 'Output Format', content: DOCUMENT_CONTENT['doc-3'] },
+    { id: 'doc-4', title: 'Constraints', content: DOCUMENT_CONTENT['doc-4'] },
+    { id: 'doc-5', title: 'Examples', content: DOCUMENT_CONTENT['doc-5'] },
+];
 
 // Sample HTML content for the iframe
 const TASK_HTML = `
@@ -125,18 +125,6 @@ export default function InPageBrowserDemo() {
         return () => clearInterval(interval);
     }, []);
 
-    // Simulated API call for lazy loading documents
-    const handleDocumentSelect = async (docId: string) => {
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500));
-
-        return {
-            id: docId,
-            title: SAMPLE_DOCUMENTS.find(d => d.id === docId)?.title || 'Document',
-            content: DOCUMENT_CONTENT[docId] || '<p>Content not found</p>',
-        };
-    };
-
     return (
         <div className="demo-container">
             <div className="demo-header">
@@ -150,7 +138,6 @@ export default function InPageBrowserDemo() {
                 <InPageBrowser
                     htmlContent={TASK_HTML}
                     documents={SAMPLE_DOCUMENTS}
-                    onDocumentSelect={handleDocumentSelect}
                 />
             </div>
 
