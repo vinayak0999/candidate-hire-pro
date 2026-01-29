@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
 import { adminApiService } from '../../services/api';
 import {
     Search, User, Mail, Phone, Calendar, GraduationCap, Building2,
-    X, Send, MessageSquare, Eye, Clock,
-    CheckCircle, XCircle, FileText, ExternalLink, Briefcase
+    X, Send, MessageSquare, Eye, Clock, Download,
+    CheckCircle, XCircle, FileText, ExternalLink, Briefcase, MapPin, Code
 } from 'lucide-react';
+
 import './CandidatesPage.css';
 
 // ===== TYPES =====
@@ -40,12 +41,45 @@ interface CandidateProfile {
     badges_count: number;
     // Resume data
     resume_url?: string;
+    resume_filename?: string;
     professional_summary?: string;
     skills?: string[];
     years_of_experience?: number;
     current_role?: string;
+    current_company?: string;
+    location?: string;
     linkedin_url?: string;
     github_url?: string;
+    portfolio_url?: string;
+    has_data_annotation_experience?: boolean;
+    why_annotation?: string;
+    education?: Array<{
+        id: number;
+        school: string;
+        degree?: string;
+        field_of_study?: string;
+        start_year?: number;
+        end_year?: number;
+        gpa?: string;
+    }>;
+    work_experience?: Array<{
+        id: number;
+        company: string;
+        role: string;
+        city?: string;
+        country?: string;
+        start_date?: string;
+        end_date?: string;
+        is_current: boolean;
+        description?: string;
+    }>;
+    projects?: Array<{
+        id: number;
+        name: string;
+        description?: string;
+        technologies: string[];
+        url?: string;
+    }>;
     test_attempts: Array<{
         test_id: number;
         status: string;
@@ -61,6 +95,7 @@ interface CandidateProfile {
         created_at: string;
     }>;
 }
+
 
 // ===== AVATAR COMPONENT =====
 const Avatar = memo(({ name, avatarUrl, size = 40 }: { name: string; avatarUrl?: string; size?: number }) => {
@@ -168,6 +203,7 @@ export default function CandidatesPage() {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [profileLoading, setProfileLoading] = useState(false);
     const [showResume, setShowResume] = useState(false);
+    const [downloadingResume, setDownloadingResume] = useState(false);
 
     // Message modal
     const [messageModal, setMessageModal] = useState<{ open: boolean; candidateId: number; candidateName: string }>({
@@ -274,6 +310,28 @@ export default function CandidatesPage() {
         } catch (error) { console.error('Reject failed:', error); }
     }, []);
 
+    // Download candidate resume
+    const handleDownloadResume = useCallback(async () => {
+        if (!selectedCandidate) return;
+        try {
+            setDownloadingResume(true);
+            const blob = await adminApiService.downloadCandidateResume(selectedCandidate.id);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = selectedCandidate.resume_filename || `${selectedCandidate.name}_resume.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error('Download failed:', error);
+            alert('Failed to download resume');
+        } finally {
+            setDownloadingResume(false);
+        }
+    }, [selectedCandidate]);
+
     const MESSAGE_REASONS = [
         'Interview Invitation',
         'Application Update',
@@ -340,7 +398,7 @@ export default function CandidatesPage() {
             {/* Profile Drawer */}
             {drawerOpen && (
                 <div className="drawer-overlay" onClick={() => setDrawerOpen(false)}>
-                    <div className="profile-drawer" onClick={e => e.stopPropagation()}>
+                    <div className="profile-drawer profile-drawer-wide" onClick={e => e.stopPropagation()}>
                         <div className="drawer-header">
                             <h2>Candidate Profile</h2>
                             <button className="close-btn" onClick={() => setDrawerOpen(false)}><X size={20} /></button>
@@ -349,177 +407,287 @@ export default function CandidatesPage() {
                         {profileLoading ? (
                             <div className="loading-state">Loading profile...</div>
                         ) : selectedCandidate && (
-                            <div className="drawer-content">
-                                {/* Profile Header */}
-                                <div className="profile-header">
-                                    <Avatar name={selectedCandidate.name} avatarUrl={selectedCandidate.avatar_url} size={80} />
-                                    <div>
-                                        <h3>{selectedCandidate.name}</h3>
-                                        <p className="registration">{selectedCandidate.registration_number}</p>
+                            <div className="drawer-content drawer-content-two-col">
+                                {/* Left Column - Parsed Data */}
+                                <div className="drawer-data-column">
+                                    {/* Profile Header */}
+                                    <div className="profile-header">
+                                        <Avatar name={selectedCandidate.name} avatarUrl={selectedCandidate.avatar_url} size={80} />
+                                        <div>
+                                            <h3>{selectedCandidate.name}</h3>
+                                            <p className="registration">{selectedCandidate.registration_number}</p>
+                                            {selectedCandidate.current_role && (
+                                                <p className="current-role">
+                                                    <Briefcase size={14} />
+                                                    {selectedCandidate.current_role}
+                                                    {selectedCandidate.current_company && ` at ${selectedCandidate.current_company}`}
+                                                </p>
+                                            )}
+                                            {selectedCandidate.location && (
+                                                <p className="location">
+                                                    <MapPin size={14} />
+                                                    {selectedCandidate.location}
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
+
+                                    {/* Contact Info */}
+                                    <div className="profile-section">
+                                        <h4>Contact Information</h4>
+                                        <div className="info-grid">
+                                            <div className="info-item">
+                                                <Mail size={16} />
+                                                <span>{selectedCandidate.email}</span>
+                                            </div>
+                                            <div className="info-item">
+                                                <Phone size={16} />
+                                                <span>{selectedCandidate.phone || 'Not provided'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Professional Summary */}
+                                    {selectedCandidate.professional_summary && (
+                                        <div className="profile-section">
+                                            <h4><Briefcase size={16} /> Professional Summary</h4>
+                                            <p className="summary-text">{selectedCandidate.professional_summary}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Work Experience */}
+                                    {selectedCandidate.work_experience && selectedCandidate.work_experience.length > 0 && (
+                                        <div className="profile-section">
+                                            <h4><Building2 size={16} /> Work Experience</h4>
+                                            <div className="experience-list">
+                                                {selectedCandidate.work_experience.map(exp => (
+                                                    <div key={exp.id} className="experience-item">
+                                                        <div className="experience-header">
+                                                            <strong>{exp.role}</strong>
+                                                            <span className="company-name">{exp.company}</span>
+                                                        </div>
+                                                        <div className="experience-meta">
+                                                            {exp.city && exp.country && <span>{exp.city}, {exp.country}</span>}
+                                                            <span className="date-range">
+                                                                {exp.start_date} - {exp.is_current ? 'Present' : exp.end_date}
+                                                            </span>
+                                                        </div>
+                                                        {exp.description && (
+                                                            <p className="experience-desc">{exp.description}</p>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Education - from signup info */}
+                                    <div className="profile-section">
+                                        <h4><GraduationCap size={16} /> Education</h4>
+                                        <div className="info-grid">
+                                            <div className="info-item">
+                                                <GraduationCap size={16} />
+                                                <span>{selectedCandidate.degree} - {selectedCandidate.branch}</span>
+                                            </div>
+                                            <div className="info-item">
+                                                <Building2 size={16} />
+                                                <span>{selectedCandidate.college}</span>
+                                            </div>
+                                            <div className="info-item">
+                                                <Calendar size={16} />
+                                                <span>Batch: {selectedCandidate.batch}</span>
+                                            </div>
+                                        </div>
+                                        {/* Additional education from resume */}
+                                        {selectedCandidate.education && selectedCandidate.education.length > 0 && (
+                                            <div className="education-list">
+                                                {selectedCandidate.education.map(edu => (
+                                                    <div key={edu.id} className="education-item">
+                                                        <strong>{edu.degree} {edu.field_of_study && `in ${edu.field_of_study}`}</strong>
+                                                        <span>{edu.school}</span>
+                                                        <span className="date-range">{edu.start_year} - {edu.end_year}</span>
+                                                        {edu.gpa && <span className="gpa">GPA: {edu.gpa}</span>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Skills */}
+                                    {selectedCandidate.skills && selectedCandidate.skills.length > 0 && (
+                                        <div className="profile-section">
+                                            <h4><Code size={16} /> Skills</h4>
+                                            <div className="skills-grid">
+                                                {selectedCandidate.skills.map((skill, i) => (
+                                                    <span key={i} className="skill-tag">{skill}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Projects */}
+                                    {selectedCandidate.projects && selectedCandidate.projects.length > 0 && (
+                                        <div className="profile-section">
+                                            <h4>Projects</h4>
+                                            <div className="projects-list">
+                                                {selectedCandidate.projects.map(proj => (
+                                                    <div key={proj.id} className="project-item">
+                                                        <div className="project-header">
+                                                            <strong>{proj.name}</strong>
+                                                            {proj.url && (
+                                                                <a href={proj.url} target="_blank" rel="noopener noreferrer">
+                                                                    <ExternalLink size={14} />
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                        {proj.description && <p>{proj.description}</p>}
+                                                        {proj.technologies.length > 0 && (
+                                                            <div className="project-tech">
+                                                                {proj.technologies.map((tech, i) => (
+                                                                    <span key={i} className="tech-tag">{tech}</span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Stats */}
+                                    <div className="profile-section">
+                                        <h4>Performance Stats</h4>
+                                        <div className="stats-grid">
+                                            <div className="stat-card">
+                                                <span className="stat-value">{selectedCandidate.neo_pat_score}</span>
+                                                <span className="stat-label">Score</span>
+                                            </div>
+                                            <div className="stat-card easy">
+                                                <span className="stat-value">{selectedCandidate.solved_easy}</span>
+                                                <span className="stat-label">Easy</span>
+                                            </div>
+                                            <div className="stat-card medium">
+                                                <span className="stat-value">{selectedCandidate.solved_medium}</span>
+                                                <span className="stat-label">Medium</span>
+                                            </div>
+                                            <div className="stat-card hard">
+                                                <span className="stat-value">{selectedCandidate.solved_hard}</span>
+                                                <span className="stat-label">Hard</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Test Attempts */}
+                                    {selectedCandidate.test_attempts.length > 0 && (
+                                        <div className="profile-section">
+                                            <h4>Test History</h4>
+                                            <div className="test-list">
+                                                {selectedCandidate.test_attempts.map((test, i) => (
+                                                    <div key={i} className="test-item">
+                                                        <span className="test-id">Test #{test.test_id}</span>
+                                                        <span className={`test-status ${test.status}`}>{test.status}</span>
+                                                        <span className="test-score">{test.score} pts</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Links */}
+                                    {(selectedCandidate.linkedin_url || selectedCandidate.github_url || selectedCandidate.portfolio_url) && (
+                                        <div className="profile-section">
+                                            <h4>Links</h4>
+                                            <div className="links-grid">
+                                                {selectedCandidate.linkedin_url && (
+                                                    <a href={selectedCandidate.linkedin_url} target="_blank" rel="noopener noreferrer" className="link-item">
+                                                        <ExternalLink size={14} /> LinkedIn
+                                                    </a>
+                                                )}
+                                                {selectedCandidate.github_url && (
+                                                    <a href={selectedCandidate.github_url} target="_blank" rel="noopener noreferrer" className="link-item">
+                                                        <ExternalLink size={14} /> GitHub
+                                                    </a>
+                                                )}
+                                                {selectedCandidate.portfolio_url && (
+                                                    <a href={selectedCandidate.portfolio_url} target="_blank" rel="noopener noreferrer" className="link-item">
+                                                        <ExternalLink size={14} /> Portfolio
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Messages Sent */}
+                                    {selectedCandidate.messages.length > 0 && (
+                                        <div className="profile-section">
+                                            <h4>Messages Sent</h4>
+                                            <div className="messages-list">
+                                                {selectedCandidate.messages.map(msg => (
+                                                    <div key={msg.id} className="message-item">
+                                                        <span className="msg-subject">{msg.subject}</span>
+                                                        <span className="msg-date">{new Date(msg.created_at).toLocaleDateString()}</span>
+                                                        {!msg.is_read && <span className="unread-dot" />}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
-                                {/* Contact Info */}
-                                <div className="profile-section">
-                                    <h4>Contact Information</h4>
-                                    <div className="info-grid">
-                                        <div className="info-item">
-                                            <Mail size={16} />
-                                            <span>{selectedCandidate.email}</span>
-                                        </div>
-                                        <div className="info-item">
-                                            <Phone size={16} />
-                                            <span>{selectedCandidate.phone || 'Not provided'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Education */}
-                                <div className="profile-section">
-                                    <h4>Education</h4>
-                                    <div className="info-grid">
-                                        <div className="info-item">
-                                            <GraduationCap size={16} />
-                                            <span>{selectedCandidate.degree} - {selectedCandidate.branch}</span>
-                                        </div>
-                                        <div className="info-item">
-                                            <Building2 size={16} />
-                                            <span>{selectedCandidate.college}</span>
-                                        </div>
-                                        <div className="info-item">
-                                            <Calendar size={16} />
-                                            <span>Batch: {selectedCandidate.batch}</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Stats */}
-                                <div className="profile-section">
-                                    <h4>Performance Stats</h4>
-                                    <div className="stats-grid">
-                                        <div className="stat-card">
-                                            <span className="stat-value">{selectedCandidate.neo_pat_score}</span>
-                                            <span className="stat-label">Score</span>
-                                        </div>
-                                        <div className="stat-card easy">
-                                            <span className="stat-value">{selectedCandidate.solved_easy}</span>
-                                            <span className="stat-label">Easy</span>
-                                        </div>
-                                        <div className="stat-card medium">
-                                            <span className="stat-value">{selectedCandidate.solved_medium}</span>
-                                            <span className="stat-label">Medium</span>
-                                        </div>
-                                        <div className="stat-card hard">
-                                            <span className="stat-value">{selectedCandidate.solved_hard}</span>
-                                            <span className="stat-label">Hard</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Test Attempts */}
-                                {selectedCandidate.test_attempts.length > 0 && (
-                                    <div className="profile-section">
-                                        <h4>Test History</h4>
-                                        <div className="test-list">
-                                            {selectedCandidate.test_attempts.map((test, i) => (
-                                                <div key={i} className="test-item">
-                                                    <span className="test-id">Test #{test.test_id}</span>
-                                                    <span className={`test-status ${test.status}`}>{test.status}</span>
-                                                    <span className="test-score">{test.score} pts</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Messages Sent */}
-                                {selectedCandidate.messages.length > 0 && (
-                                    <div className="profile-section">
-                                        <h4>Messages Sent</h4>
-                                        <div className="messages-list">
-                                            {selectedCandidate.messages.map(msg => (
-                                                <div key={msg.id} className="message-item">
-                                                    <span className="msg-subject">{msg.subject}</span>
-                                                    <span className="msg-date">{new Date(msg.created_at).toLocaleDateString()}</span>
-                                                    {!msg.is_read && <span className="unread-dot" />}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Professional Summary */}
-                                {selectedCandidate.professional_summary && (
-                                    <div className="profile-section">
-                                        <h4><Briefcase size={16} /> Professional Summary</h4>
-                                        <p className="summary-text">{selectedCandidate.professional_summary}</p>
-                                    </div>
-                                )}
-
-                                {/* Skills */}
-                                {selectedCandidate.skills && selectedCandidate.skills.length > 0 && (
-                                    <div className="profile-section">
-                                        <h4>Skills</h4>
-                                        <div className="skills-grid">
-                                            {selectedCandidate.skills.map((skill, i) => (
-                                                <span key={i} className="skill-tag">{skill}</span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Resume */}
-                                {selectedCandidate.resume_url && (
-                                    <div className="profile-section">
+                                {/* Right Column - Resume Viewer */}
+                                <div className="drawer-resume-column">
+                                    <div className="resume-section-header">
                                         <h4><FileText size={16} /> Resume</h4>
-                                        <div className="resume-actions">
-                                            <button
-                                                className="btn-outline view-resume-btn"
-                                                onClick={() => setShowResume(true)}
-                                            >
-                                                <Eye size={16} /> View Resume
-                                            </button>
-                                            <a
-                                                href={selectedCandidate.resume_url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="btn-outline"
-                                            >
-                                                <ExternalLink size={16} /> Open in New Tab
-                                            </a>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Links */}
-                                {(selectedCandidate.linkedin_url || selectedCandidate.github_url) && (
-                                    <div className="profile-section">
-                                        <h4>Links</h4>
-                                        <div className="links-grid">
-                                            {selectedCandidate.linkedin_url && (
-                                                <a href={selectedCandidate.linkedin_url} target="_blank" rel="noopener noreferrer" className="link-item">
-                                                    <ExternalLink size={14} /> LinkedIn
+                                        {selectedCandidate.resume_url && (
+                                            <div className="resume-actions">
+                                                <button
+                                                    className="btn-outline btn-sm"
+                                                    onClick={handleDownloadResume}
+                                                    disabled={downloadingResume}
+                                                >
+                                                    <Download size={14} />
+                                                    {downloadingResume ? 'Downloading...' : 'Download'}
+                                                </button>
+                                                <a
+                                                    href={selectedCandidate.resume_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="btn-outline btn-sm"
+                                                >
+                                                    <ExternalLink size={14} /> Open
                                                 </a>
-                                            )}
-                                            {selectedCandidate.github_url && (
-                                                <a href={selectedCandidate.github_url} target="_blank" rel="noopener noreferrer" className="link-item">
-                                                    <ExternalLink size={14} /> GitHub
-                                                </a>
-                                            )}
-                                        </div>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-
-                                {/* Actions */}
-                                <div className="drawer-actions">
-                                    <button className="btn-secondary" onClick={() => handleOpenMessage(selectedCandidate.id, selectedCandidate.name)}>
-                                        <MessageSquare size={16} /> Send Message
-                                    </button>
+                                    {selectedCandidate.resume_url ? (
+                                        <div className="resume-viewer-container">
+                                            <iframe
+                                                src={selectedCandidate.resume_url}
+                                                title="Resume"
+                                                className="resume-iframe"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="no-resume">
+                                            <FileText size={48} strokeWidth={1} />
+                                            <p>No resume uploaded</p>
+                                        </div>
+                                    )}
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Drawer Actions */}
+                        {selectedCandidate && (
+                            <div className="drawer-actions">
+                                <button className="btn-secondary" onClick={() => handleOpenMessage(selectedCandidate.id, selectedCandidate.name)}>
+                                    <MessageSquare size={16} /> Send Message
+                                </button>
                             </div>
                         )}
                     </div>
                 </div>
+
             )}
 
             {/* Message Modal */}

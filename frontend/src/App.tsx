@@ -55,15 +55,29 @@ function App() {
                 const userData = await authApi.getMe();
                 setUser(userData);
                 setIsAuthenticated(true);
+
+                // Also check if this user should have admin access
+                const adminToken = localStorage.getItem('admin_token');
+                if (adminToken) {
+                    // Verify user is actually an admin
+                    if (userData.role?.toUpperCase() === 'ADMIN') {
+                        setIsAdminAuthenticated(true);
+                    } else {
+                        // Not an admin - revoke admin token
+                        localStorage.removeItem('admin_token');
+                        setIsAdminAuthenticated(false);
+                    }
+                }
             } catch {
                 localStorage.removeItem('access_token');
+                localStorage.removeItem('admin_token');
                 setIsAuthenticated(false);
+                setIsAdminAuthenticated(false);
             }
-        }
-
-        const adminToken = localStorage.getItem('admin_token');
-        if (adminToken) {
-            setIsAdminAuthenticated(true);
+        } else {
+            // No access token, clear admin token too
+            localStorage.removeItem('admin_token');
+            setIsAdminAuthenticated(false);
         }
 
         setLoading(false);

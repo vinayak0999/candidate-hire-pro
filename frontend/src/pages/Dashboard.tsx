@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { jobsApi } from '../services/api';
 import type { User, Job, JobStats } from '../types';
 import './Dashboard.css';
+import profileBanner from '../assets/banner.jpg';
 
 type TabType = 'skill' | 'course' | 'jobs';
 
@@ -75,7 +76,7 @@ export default function Dashboard({ user }: DashboardProps) {
 
             {/* Profile Section - Enhanced Design */}
             <div className="user-card glass-panel">
-                <div className="user-card-banner" />
+                <div className="user-card-banner" style={{ backgroundImage: `url(${profileBanner})` }} />
                 <div className="user-card-content">
                     <div className="user-avatar-wrapper">
                         <img

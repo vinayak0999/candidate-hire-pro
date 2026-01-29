@@ -24,13 +24,27 @@ export default function AdminLogin({ onLogin }: AdminLoginProps) {
             // Call real authentication API
             const response = await authApi.login({ username: email, password });
 
-            // Store the real token
+            // Store the token temporarily to check role
             localStorage.setItem('access_token', response.access_token);
+
+            // CRITICAL: Verify user is actually an admin
+            const userData = await authApi.getMe();
+
+            if (userData.role?.toUpperCase() !== 'ADMIN') {
+                // NOT an admin - clear token and show error
+                localStorage.removeItem('access_token');
+                setError('Access denied. Admin privileges required.');
+                setLoading(false);
+                return;
+            }
+
+            // User is verified admin - store admin token
             localStorage.setItem('admin_token', response.access_token);
 
             onLogin();
             navigate('/admin');
         } catch (err: any) {
+            localStorage.removeItem('access_token');
             setError(err.response?.data?.detail || 'Invalid credentials');
         } finally {
             setLoading(false);

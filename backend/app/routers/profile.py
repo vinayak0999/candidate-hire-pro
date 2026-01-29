@@ -736,6 +736,125 @@ async def list_all_skills(
 
 
 # ============================================================================
+# Resume Download Endpoints (Scalable for 10K+ users)
+# ============================================================================
+
+@router.get("/resume/url")
+async def get_resume_url(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the URL of the user's uploaded resume.
+    
+    Returns the resume URL and filename for direct access or embedding.
+    Use this for PDF viewers that need a direct URL.
+    """
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found. Please upload a resume first."
+        )
+    
+    if not profile.resume_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No resume uploaded. Please upload a resume first."
+        )
+    
+    return {
+        "url": profile.resume_url,
+        "filename": profile.resume_filename or "resume.pdf",
+        "parsed_at": profile.resume_parsed_at.isoformat() if profile.resume_parsed_at else None
+    }
+
+
+@router.get("/resume/download")
+async def download_resume(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Download the user's resume as a PDF file.
+    
+    Scalable for 10K+ users:
+    - Uses streaming response (no server memory buffering)
+    - Adds proper caching headers for CDN
+    - Includes Content-Disposition for proper filename
+    
+    For local storage: serves file directly
+    For Supabase: streams from storage
+    """
+    import httpx
+    from fastapi.responses import StreamingResponse, FileResponse
+    import os
+    
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found. Please upload a resume first."
+        )
+    
+    if not profile.resume_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No resume uploaded. Please upload a resume first."
+        )
+    
+    filename = profile.resume_filename or "resume.pdf"
+    # Sanitize filename for Content-Disposition header
+    safe_filename = filename.replace('"', '\\"').replace('\n', '').replace('\r', '')
+    
+    # Check if it's a local file or remote URL
+    if profile.resume_url.startswith("/uploads/"):
+        # Local storage - serve file directly
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        local_path = os.path.join(base_dir, profile.resume_url.lstrip("/"))
+        
+        if not os.path.exists(local_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resume file not found on server. Please upload again."
+            )
+        
+        return FileResponse(
+            path=local_path,
+            filename=safe_filename,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                "Cache-Control": "private, max-age=3600"  # Cache for 1 hour
+            }
+        )
+    else:
+        # Remote URL (Supabase) - stream the content
+        async def stream_from_url():
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream("GET", profile.resume_url) as response:
+                    if response.status_code != 200:
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Failed to fetch resume from storage"
+                        )
+                    async for chunk in response.aiter_bytes(chunk_size=65536):  # 64KB chunks
+                        yield chunk
+        
+        return StreamingResponse(
+            stream_from_url(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                "Cache-Control": "private, max-age=3600",  # Cache for 1 hour
+                "X-Content-Type-Options": "nosniff"
+            }
+        )
+
+
+# ============================================================================
 # Language (Manual Add/Remove)
 # ============================================================================
 

@@ -1394,6 +1394,22 @@ async def get_candidate_profile(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
+    # Get candidate profile with resume data
+    from ..models.profile import CandidateProfile, Education, WorkExperience, Skill, Project
+    from sqlalchemy.orm import selectinload
+    
+    profile_result = await db.execute(
+        select(CandidateProfile)
+        .options(
+            selectinload(CandidateProfile.education),
+            selectinload(CandidateProfile.work_experience),
+            selectinload(CandidateProfile.skills),
+            selectinload(CandidateProfile.projects)
+        )
+        .where(CandidateProfile.user_id == candidate_id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    
     # Get test attempts
     attempts_result = await db.execute(
         select(TestAttempt).where(TestAttempt.user_id == candidate_id).order_by(TestAttempt.started_at.desc())
@@ -1406,7 +1422,8 @@ async def get_candidate_profile(
     )
     messages = messages_result.scalars().all()
     
-    return {
+    # Build response with profile data if exists
+    response = {
         "id": candidate.id,
         "name": candidate.name,
         "email": candidate.email,
@@ -1448,6 +1465,144 @@ async def get_candidate_profile(
             for m in messages
         ]
     }
+    
+    # Add resume/profile data if available
+    if profile:
+        response.update({
+            "resume_url": profile.resume_url,
+            "resume_filename": profile.resume_filename,
+            "professional_summary": profile.professional_summary,
+            "linkedin_url": profile.linkedin_url,
+            "github_url": profile.github_url,
+            "portfolio_url": profile.portfolio_url,
+            "years_of_experience": profile.years_of_experience,
+            "current_role": profile.current_role,
+            "current_company": profile.current_company,
+            "location": profile.location,
+            "has_data_annotation_experience": profile.has_data_annotation_experience,
+            "why_annotation": profile.why_annotation,
+            "education": [
+                {
+                    "id": edu.id,
+                    "school": edu.school,
+                    "degree": edu.degree,
+                    "field_of_study": edu.field_of_study,
+                    "start_year": edu.start_year,
+                    "end_year": edu.end_year,
+                    "gpa": edu.gpa
+                }
+                for edu in (profile.education or [])
+            ],
+            "work_experience": [
+                {
+                    "id": exp.id,
+                    "company": exp.company,
+                    "role": exp.role,
+                    "city": exp.city,
+                    "country": exp.country,
+                    "start_date": exp.start_date,
+                    "end_date": exp.end_date,
+                    "is_current": exp.is_current,
+                    "description": exp.description
+                }
+                for exp in (profile.work_experience or [])
+            ],
+            "skills": [skill.display_name for skill in (profile.skills or [])],
+            "projects": [
+                {
+                    "id": proj.id,
+                    "name": proj.name,
+                    "description": proj.description,
+                    "technologies": proj.technologies or [],
+                    "url": proj.url
+                }
+                for proj in (profile.projects or [])
+            ]
+        })
+    else:
+        # No profile yet
+        response.update({
+            "resume_url": None,
+            "resume_filename": None,
+            "professional_summary": None,
+            "linkedin_url": None,
+            "github_url": None,
+            "portfolio_url": None,
+            "years_of_experience": None,
+            "current_role": None,
+            "current_company": None,
+            "location": None,
+            "has_data_annotation_experience": None,
+            "why_annotation": None,
+            "education": [],
+            "work_experience": [],
+            "skills": [],
+            "projects": []
+        })
+    
+    return response
+
+
+@router.get("/candidates/{candidate_id}/resume/download")
+async def download_candidate_resume(
+    candidate_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Admin endpoint to download a candidate's resume"""
+    from fastapi.responses import FileResponse, StreamingResponse
+    import httpx
+    
+    # Get candidate profile
+    from ..models.profile import CandidateProfile
+    result = await db.execute(
+        select(CandidateProfile).where(CandidateProfile.user_id == candidate_id)
+    )
+    profile = result.scalar_one_or_none()
+    
+    if not profile or not profile.resume_url:
+        raise HTTPException(status_code=404, detail="Resume not found for this candidate")
+    
+    # Safe filename
+    safe_filename = (profile.resume_filename or "resume.pdf").replace('"', '\\"')
+    
+    # Handle local storage
+    if profile.resume_url.startswith("/uploads/"):
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        file_path = os.path.join(backend_dir, profile.resume_url.lstrip("/"))
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Resume file not found on server")
+        
+        return FileResponse(
+            file_path,
+            media_type="application/pdf",
+            filename=safe_filename,
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                "Cache-Control": "private, max-age=3600"
+            }
+        )
+    
+    # Handle remote URL (Supabase) - stream for scalability
+    async def stream_from_url():
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("GET", profile.resume_url) as response:
+                if response.status_code != 200:
+                    return
+                async for chunk in response.aiter_bytes(chunk_size=65536):
+                    yield chunk
+    
+    return StreamingResponse(
+        stream_from_url(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff"
+        }
+    )
+
 
 
 # ========== Job CRUD ==========

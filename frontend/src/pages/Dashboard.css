@@ -62,6 +62,9 @@
 .user-card-banner {
     height: 160px;
     background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     width: 100%;
     position: relative;
 }
@@ -101,6 +104,8 @@
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
     object-fit: cover;
     background: white;
+    position: relative;
+    z-index: 1;
 }
 
 .user-info {

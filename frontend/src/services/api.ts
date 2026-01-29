@@ -267,7 +267,14 @@ export const adminApiService = {
         const response = await adminApi.get(`/candidates/${candidateId}/profile`);
         return response.data;
     },
+    downloadCandidateResume: async (candidateId: number): Promise<Blob> => {
+        const response = await adminApi.get(`/candidates/${candidateId}/resume/download`, {
+            responseType: 'blob'
+        });
+        return response.data;
+    },
     sendMessage: async (data: { recipient_id: number; subject: string; content: string; reason?: string }) => {
+
         const response = await adminApi.post('/messages', null, { params: data });
         return response.data;
     },
@@ -415,6 +422,18 @@ export const profileApi = {
 
     getResumeStatus: async (): Promise<{ status: string; error_message?: string; job_id?: number }> => {
         const response = await api.get('/profile/resume-status');
+        return response.data;
+    },
+
+    getResumeUrl: async (): Promise<{ url: string; filename: string; parsed_at: string | null }> => {
+        const response = await api.get('/profile/resume/url');
+        return response.data;
+    },
+
+    downloadResume: async (): Promise<Blob> => {
+        const response = await api.get('/profile/resume/download', {
+            responseType: 'blob'
+        });
         return response.data;
     },
 };

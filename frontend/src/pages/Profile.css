@@ -62,13 +62,20 @@
     box-shadow: 0 25px 50px rgba(0, 0, 0, 0.1);
 }
 
-/* Banner */
+/* Banner - Accepts custom image from assets */
 .profile-card-banner {
-    height: 100px;
+    height: 120px;
+    /* To use custom banner: import image in Profile.tsx and set as inline style */
+    /* Or uncomment: background-image: url('/assets/profile-banner.png'); */
     background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     position: relative;
+    border-radius: 20px 20px 0 0;
 }
 
+/* Subtle overlay for text contrast when using image */
 .profile-card-banner::after {
     content: '';
     position: absolute;
@@ -76,9 +83,8 @@
     right: 0;
     bottom: 0;
     left: 0;
-    background-image:
-        radial-gradient(circle at 90% 10%, rgba(255, 255, 255, 0.1) 0%, transparent 20%),
-        radial-gradient(circle at 10% 90%, rgba(255, 255, 255, 0.05) 0%, transparent 25%);
+    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.05) 100%);
+    border-radius: 20px 20px 0 0;
 }
 
 /* Card Body */

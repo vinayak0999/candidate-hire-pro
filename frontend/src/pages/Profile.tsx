@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { profileApi } from '../services/api';
 import type { User } from '../types';
 import './Profile.css';
+import profileBanner from '../assets/banner.jpg';
 
 interface ProfileProps {
     user: User | null;
@@ -515,7 +516,7 @@ export default function Profile({ user }: ProfileProps) {
             <div className="profile-layout">
                 {/* Left Sidebar - Profile Card (Fixed Template) */}
                 <div className="profile-card">
-                    <div className="profile-card-banner"></div>
+                    <div className="profile-card-banner" style={{ backgroundImage: `url(${profileBanner})` }}></div>
                     <div className="profile-card-body">
                         <div className="profile-avatar-wrapper">
                             <img
