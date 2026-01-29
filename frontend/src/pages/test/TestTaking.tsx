@@ -47,6 +47,7 @@ export default function TestTaking() {
     const [flaggedQuestions, setFlaggedQuestions] = useState<Set<number>>(new Set());
     const [globalAnswerFile, setGlobalAnswerFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [showWarning, setShowWarning] = useState(false);
     const [warningMessage, setWarningMessage] = useState('');
@@ -135,10 +136,18 @@ export default function TestTaking() {
                     setSession(data);
                     timer.start();
                 } else {
+                    // Parse error message from backend
+                    try {
+                        const errorData = await response.json();
+                        setError(errorData.detail || 'Failed to start test');
+                    } catch {
+                        setError('Failed to start test. Please try again.');
+                    }
                     setLoading(false);
                 }
             } catch (error) {
                 console.error('Failed to start test:', error);
+                setError('Network error. Please check your connection.');
                 setLoading(false);
             } finally {
                 setLoading(false);
@@ -350,6 +359,30 @@ export default function TestTaking() {
         );
     }
 
+    // Show error message (e.g., "You have already completed this test")
+    if (error) {
+        const isAlreadyCompleted = error.toLowerCase().includes('already completed') || error.toLowerCase().includes('already taken');
+        return (
+            <div className="test-error">
+                <div className="error-icon">
+                    {isAlreadyCompleted ? '✅' : '⚠️'}
+                </div>
+                <h2>{isAlreadyCompleted ? 'Test Already Submitted' : 'Unable to Start Test'}</h2>
+                <p>{error}</p>
+                <div className="error-actions">
+                    <button onClick={() => navigate('/opportunities')} className="btn-primary">
+                        Back to Opportunities
+                    </button>
+                    {isAlreadyCompleted && (
+                        <button onClick={() => navigate('/dashboard')} className="btn-secondary">
+                            View Dashboard
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     if (!session || !session.questions?.length) {
         return (
             <div className="test-error">
@@ -510,45 +543,45 @@ export default function TestTaking() {
 
                         {/* Text */}
                         {(currentQuestion?.question_type === 'text_annotation' ||
-                          currentQuestion?.question_type === 'text' ||
-                          currentQuestion?.question_type === 'reading') && (
-                            <textarea
-                                className="answer-textarea"
-                                placeholder="Type your answer..."
-                                value={answers[currentQuestion.id] || ''}
-                                onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
-                            />
-                        )}
+                            currentQuestion?.question_type === 'text' ||
+                            currentQuestion?.question_type === 'reading') && (
+                                <textarea
+                                    className="answer-textarea"
+                                    placeholder="Type your answer..."
+                                    value={answers[currentQuestion.id] || ''}
+                                    onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
+                                />
+                            )}
 
                         {/* Image */}
                         {(currentQuestion?.question_type === 'image_annotation' ||
-                          currentQuestion?.question_type === 'image') && (
-                            <div className="media-answer">
-                                {currentQuestion.media_url && (
-                                    <img src={getMediaUrl(currentQuestion.media_url)} alt="Question" />
-                                )}
-                                <textarea
-                                    placeholder="Describe what you see..."
-                                    value={answers[currentQuestion.id] || ''}
-                                    onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
-                                />
-                            </div>
-                        )}
+                            currentQuestion?.question_type === 'image') && (
+                                <div className="media-answer">
+                                    {currentQuestion.media_url && (
+                                        <img src={getMediaUrl(currentQuestion.media_url)} alt="Question" />
+                                    )}
+                                    <textarea
+                                        placeholder="Describe what you see..."
+                                        value={answers[currentQuestion.id] || ''}
+                                        onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
+                                    />
+                                </div>
+                            )}
 
                         {/* Video */}
                         {(currentQuestion?.question_type === 'video_annotation' ||
-                          currentQuestion?.question_type === 'video') && (
-                            <div className="media-answer">
-                                {currentQuestion.media_url && (
-                                    <video controls src={getMediaUrl(currentQuestion.media_url)} />
-                                )}
-                                <textarea
-                                    placeholder="Describe what you observed..."
-                                    value={answers[currentQuestion.id] || ''}
-                                    onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
-                                />
-                            </div>
-                        )}
+                            currentQuestion?.question_type === 'video') && (
+                                <div className="media-answer">
+                                    {currentQuestion.media_url && (
+                                        <video controls src={getMediaUrl(currentQuestion.media_url)} />
+                                    )}
+                                    <textarea
+                                        placeholder="Describe what you observed..."
+                                        value={answers[currentQuestion.id] || ''}
+                                        onChange={(e) => handleSelectAnswer(currentQuestion.id, e.target.value)}
+                                    />
+                                </div>
+                            )}
 
                         {/* Agent Analysis */}
                         {currentQuestion?.question_type === 'agent_analysis' && (
@@ -558,7 +591,7 @@ export default function TestTaking() {
                                     htmlUrl={processedHtmlUrl}
                                     htmlContent={
                                         currentQuestion.html_content?.startsWith('/') ||
-                                        currentQuestion.html_content?.startsWith('http')
+                                            currentQuestion.html_content?.startsWith('http')
                                             ? undefined
                                             : currentQuestion.html_content || ''
                                     }
