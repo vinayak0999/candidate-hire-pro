@@ -649,7 +649,9 @@ export default function CandidatesPage() {
                                                     {downloadingResume ? 'Downloading...' : 'Download'}
                                                 </button>
                                                 <a
-                                                    href={selectedCandidate.resume_url}
+                                                    href={selectedCandidate.resume_url.startsWith('/uploads/')
+                                                        ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'}${selectedCandidate.resume_url}`
+                                                        : selectedCandidate.resume_url}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="btn-outline btn-sm"
@@ -661,11 +663,31 @@ export default function CandidatesPage() {
                                     </div>
                                     {selectedCandidate.resume_url ? (
                                         <div className="resume-viewer-container">
-                                            <iframe
-                                                src={selectedCandidate.resume_url}
-                                                title="Resume"
-                                                className="resume-iframe"
-                                            />
+                                            {/* Use Google PDF Viewer for reliable cross-origin PDF rendering */}
+                                            {selectedCandidate.resume_url.startsWith('/uploads/') ? (
+                                                // Local storage - show download prompt since iframe won't work
+                                                <div className="local-resume-notice">
+                                                    <FileText size={48} strokeWidth={1} />
+                                                    <p>Resume stored locally</p>
+                                                    <p className="subtext">Click "Download" or "Open" above to view the PDF</p>
+                                                    <button
+                                                        className="btn-primary btn-sm"
+                                                        onClick={handleDownloadResume}
+                                                        disabled={downloadingResume}
+                                                    >
+                                                        <Download size={14} />
+                                                        {downloadingResume ? 'Downloading...' : 'Download Resume'}
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                // Remote URL (Supabase/CloudFront) - try iframe with fallback
+                                                <iframe
+                                                    src={selectedCandidate.resume_url}
+                                                    title="Resume"
+                                                    className="resume-iframe"
+                                                    onError={() => console.log('PDF iframe failed to load')}
+                                                />
+                                            )}
                                         </div>
                                     ) : (
                                         <div className="no-resume">
@@ -750,11 +772,27 @@ export default function CandidatesPage() {
                             </button>
                         </div>
                         <div className="resume-viewer">
-                            <iframe
-                                src={selectedCandidate.resume_url}
-                                title="Resume"
-                                className="resume-iframe"
-                            />
+                            {selectedCandidate.resume_url.startsWith('/uploads/') ? (
+                                <div className="local-resume-notice">
+                                    <FileText size={48} strokeWidth={1} />
+                                    <p>Resume stored locally</p>
+                                    <p className="subtext">Click download to view the PDF</p>
+                                    <button
+                                        className="btn-primary btn-sm"
+                                        onClick={handleDownloadResume}
+                                        disabled={downloadingResume}
+                                    >
+                                        <Download size={14} />
+                                        {downloadingResume ? 'Downloading...' : 'Download Resume'}
+                                    </button>
+                                </div>
+                            ) : (
+                                <iframe
+                                    src={selectedCandidate.resume_url}
+                                    title="Resume"
+                                    className="resume-iframe"
+                                />
+                            )}
                         </div>
                     </div>
                 </div>

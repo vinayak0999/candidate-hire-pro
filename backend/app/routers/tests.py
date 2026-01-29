@@ -710,11 +710,12 @@ async def proxy_content(
     """
     Proxy endpoint to serve content with correct content-type/disposition.
     Uses streaming to prevent memory exhaustion (OOM) on large files.
+    Optimized for 10k+ concurrent users.
     """
     import httpx
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import StreamingResponse, RedirectResponse
     from fastapi import HTTPException
-    
+
     # Validate URL is from Cloudinary, Supabase, or our backend
     allowed_domains = [
         "https://res.cloudinary.com/",
@@ -723,40 +724,53 @@ async def proxy_content(
     ]
     if not any(url.startswith(domain) for domain in allowed_domains):
         raise HTTPException(status_code=400, detail="Invalid URL source")
-    
+
+    # For Supabase public files, redirect directly to avoid proxying
+    # This is much more efficient for large files (12MB HTML, etc.)
+    if url.startswith("https://rmysstjbjaaqctbbswmj.supabase.co/storage/v1/object/public/"):
+        # Return redirect for browsers to fetch directly from CDN
+        # This dramatically reduces server memory usage
+        return RedirectResponse(url=url, status_code=302)
+
     try:
-        # We use a generator to keep the client session open during streaming
+        # For non-public URLs, stream with optimizations
         async def stream_generator():
-            async with httpx.AsyncClient() as client:
+            # Use connection pooling with limits
+            limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            async with httpx.AsyncClient(limits=limits, timeout=30.0) as client:
                 try:
+                    # Smaller chunk size (32KB) to reduce memory per connection
                     async with client.stream("GET", url, timeout=60.0) as response:
                         response.raise_for_status()
-                        async for chunk in response.aiter_bytes():
+                        async for chunk in response.aiter_bytes(chunk_size=32768):
                             yield chunk
                 except httpx.HTTPError as e:
-                    # Log error or handle gracefully (streaming might have started)
                     print(f"Stream error: {e}")
                     raise
 
         # Fetch header info first to set media_type correctly without loading body
-        async with httpx.AsyncClient() as client:
-             head_response = await client.head(url, timeout=10.0)
-        
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            head_response = await client.head(url, timeout=10.0)
+
         # Default to upstream content-type
         media_type = head_response.headers.get("content-type", "application/octet-stream")
-        
+        content_length = head_response.headers.get("content-length")
+
         # FORCE override based on file extension because Supabase/upstream often sends text/plain
         lower_url = url.lower()
         if lower_url.endswith('.html') or lower_url.endswith('.htm'):
             media_type = "text/html; charset=utf-8"
         elif lower_url.endswith('.pdf'):
             media_type = "application/pdf"
-            
-        # Override header for PDF/HTML inline display if needed
+
+        # Headers for inline display and caching
         headers = {
             "Access-Control-Allow-Origin": "*",
-            "Content-Disposition": "inline"
+            "Content-Disposition": "inline",
+            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
         }
+        if content_length:
+            headers["Content-Length"] = content_length
 
         return StreamingResponse(
             stream_generator(),

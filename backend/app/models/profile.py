@@ -124,7 +124,7 @@ class Education(Base):
     field_of_study = Column(String(200), nullable=True)
     start_year = Column(Integer, nullable=True)
     end_year = Column(Integer, nullable=True)
-    gpa = Column(String(20), nullable=True)
+    gpa = Column(String(100), nullable=True)  # Increased from 20 - handles "9.25 (3rd Rank in Class)" etc
     description = Column(Text, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())

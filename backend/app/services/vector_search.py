@@ -82,21 +82,30 @@ class VectorSearchService:
     async def get_embedding(self, text: str) -> List[float]:
         """
         Generate embedding for text using Gemini.
-        
+
         Args:
             text: Text to embed
-            
+
         Returns:
             List of floats representing the embedding vector
         """
         client = get_genai_client()
         if not client:
             return [0.0] * 768  # Return zero vector if client unavailable
-        result = client.models.embed_content(
-            model="embedding-001",
-            contents=text,
-        )
-        return result.embeddings[0].values
+        try:
+            result = client.models.embed_content(
+                model="embedding-001",
+                contents=text,
+            )
+            return result.embeddings[0].values
+        except Exception as e:
+            error_str = str(e)
+            # Gracefully handle quota errors - don't fail the whole operation
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "quota" in error_str.lower():
+                print(f"Embedding quota exceeded, skipping indexing: {error_str[:100]}")
+                raise  # Re-raise to skip indexing
+            print(f"Embedding error: {e}")
+            return [0.0] * 768
     
     async def get_query_embedding(self, text: str) -> List[float]:
         """
@@ -105,11 +114,19 @@ class VectorSearchService:
         client = get_genai_client()
         if not client:
             return [0.0] * 768  # Return zero vector if client unavailable
-        result = client.models.embed_content(
-            model="embedding-001",
-            contents=text,
-        )
-        return result.embeddings[0].values
+        try:
+            result = client.models.embed_content(
+                model="embedding-001",
+                contents=text,
+            )
+            return result.embeddings[0].values
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                print(f"Query embedding quota exceeded: {error_str[:100]}")
+            else:
+                print(f"Query embedding error: {e}")
+            return [0.0] * 768
     
     async def index_profile(
         self,
@@ -143,7 +160,12 @@ class VectorSearchService:
         try:
             # Generate embedding from summary
             embedding = await self.get_embedding(summary)
-            
+
+            # Check if we got a valid embedding (not zeros from quota error)
+            if all(v == 0.0 for v in embedding[:10]):
+                print(f"⚠️ Skipping vector indexing for profile {profile_id} (embedding unavailable)")
+                return None
+
             # Prepare metadata for filtering
             metadata = {
                 "skills": [s.lower() for s in skills],  # Normalize for filtering
@@ -151,9 +173,9 @@ class VectorSearchService:
                 "current_role": current_role or "",
                 "current_company": current_company or ""
             }
-            
+
             vector_id = f"profile_{profile_id}"
-            
+
             # Upsert to Pinecone
             self.index.upsert(
                 vectors=[{
@@ -162,12 +184,17 @@ class VectorSearchService:
                     "metadata": metadata
                 }]
             )
-            
+
             print(f"✅ Indexed profile {profile_id} with {len(skills)} skills")
             return vector_id
-            
+
         except Exception as e:
-            print(f"Failed to index profile: {e}")
+            error_str = str(e)
+            # Don't log full error for quota issues - just a brief note
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "quota" in error_str.lower():
+                print(f"Vector indexing skipped for profile {profile_id} (quota exceeded)")
+            else:
+                print(f"Failed to index profile: {e}")
             return None
     
     async def search_candidates(

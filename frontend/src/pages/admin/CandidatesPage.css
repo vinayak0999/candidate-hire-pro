@@ -890,7 +890,8 @@
     border: none;
 }
 
-.no-resume {
+.no-resume,
+.local-resume-notice {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -900,14 +901,33 @@
     text-align: center;
 }
 
-.no-resume svg {
+.no-resume svg,
+.local-resume-notice svg {
     margin-bottom: 12px;
     opacity: 0.5;
 }
 
-.no-resume p {
+.no-resume p,
+.local-resume-notice p {
     margin: 0;
     font-size: 14px;
+}
+
+.local-resume-notice {
+    background: #f8fafc;
+    border-radius: 8px;
+    min-height: 400px;
+}
+
+.local-resume-notice .subtext {
+    color: #94a3b8;
+    font-size: 12px;
+    margin-top: 4px;
+    margin-bottom: 16px;
+}
+
+.local-resume-notice .btn-primary {
+    margin-top: 8px;
 }
 
 /* Profile header enhancements */

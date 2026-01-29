@@ -416,7 +416,13 @@ async def process_resume_background(
 
                 # Generate unique filename: user_123_uuid_originalname.pdf
                 unique_id = str(uuid.uuid4())  # Full UUID for uniqueness
+                # Sanitize filename - remove characters that Supabase doesn't allow
+                # Supabase rejects: [ ] ( ) { } and other special chars
+                import re
                 safe_filename = filename.replace(" ", "_").replace("/", "_").replace("\\", "_")
+                safe_filename = re.sub(r'[\[\]\(\)\{\}<>\'\"#%&\+\=\|\^]', '', safe_filename)
+                # Also collapse multiple underscores
+                safe_filename = re.sub(r'_+', '_', safe_filename)
                 storage_path = f"resumes/user_{user_id}_{unique_id[:12]}_{safe_filename}"
 
                 # Try Supabase with 3 retries
@@ -443,7 +449,10 @@ async def process_resume_background(
                     uploads_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "resumes")
                     os.makedirs(uploads_dir, exist_ok=True)
 
+                    # Use the already-sanitized filename
                     local_filename = f"user_{user_id}_{unique_id[:12]}_{safe_filename}"
+                    # Extra safety for local filesystem
+                    local_filename = re.sub(r'[^\w\-_\.]', '', local_filename)
                     local_path = os.path.join(uploads_dir, local_filename)
 
                     async with aiofiles.open(local_path, 'wb') as f:
@@ -495,6 +504,13 @@ async def process_resume_background(
                     pass
 
 
+def _safe_truncate(value: Optional[str], max_len: int) -> Optional[str]:
+    """Safely truncate a string to max_len characters."""
+    if value is None:
+        return None
+    return value[:max_len] if len(value) > max_len else value
+
+
 async def apply_parsed_to_profile(
     db: AsyncSession,
     user_id: int,
@@ -502,12 +518,17 @@ async def apply_parsed_to_profile(
     filename: str,
     resume_url: Optional[str] = None
 ):
-    """Apply parsed resume data to user profile."""
+    """
+    Apply parsed resume data to user profile.
+
+    CRITICAL: This function must be robust - if parsing fails partially,
+    we should still save the resume_url so candidates can re-upload.
+    """
     from ..services.resume_parser import deduplicate_skills
-    
+
     # Get or create profile
     profile = await get_profile_with_relations(db, user_id)
-    
+
     if not profile:
         profile = CandidateProfile(user_id=user_id)
         db.add(profile)
@@ -522,129 +543,199 @@ async def apply_parsed_to_profile(
         profile.certifications.clear()
         profile.publications.clear()
         profile.awards.clear()
-    
-    # Update profile fields
-    profile.resume_filename = filename
-    profile.resume_url = resume_url  # Store the Supabase URL
+
+    # CRITICAL: Save resume URL FIRST - this must succeed even if parsing fails
+    profile.resume_filename = _safe_truncate(filename, 255)
+    profile.resume_url = _safe_truncate(resume_url, 500)
     profile.resume_parsed_at = datetime.now(timezone.utc)
-    profile.professional_summary = parsed.professional_summary
+
+    # Update profile fields with truncation
+    profile.professional_summary = parsed.professional_summary  # Text field, no limit
     profile.years_of_experience = parsed.years_of_experience
-    profile.current_role = parsed.current_role
-    profile.current_company = parsed.current_company
-    
+    profile.current_role = _safe_truncate(parsed.current_role, 200)
+    profile.current_company = _safe_truncate(parsed.current_company, 200)
+
     # Personal info
     if parsed.personal_info:
-        profile.linkedin_url = parsed.personal_info.linkedin_url
-        profile.github_url = parsed.personal_info.github_url
-        profile.portfolio_url = parsed.personal_info.portfolio_url
-        profile.location = parsed.personal_info.location
-        
+        profile.linkedin_url = _safe_truncate(parsed.personal_info.linkedin_url, 500)
+        profile.github_url = _safe_truncate(parsed.personal_info.github_url, 500)
+        profile.portfolio_url = _safe_truncate(parsed.personal_info.portfolio_url, 500)
+        profile.location = _safe_truncate(parsed.personal_info.location, 200)
+
         # Update user's name from resume if available
         if parsed.personal_info.name:
-            result = await db.execute(select(User).where(User.id == user_id))
-            user = result.scalar_one_or_none()
-            if user and (not user.name or '@' in user.name or user.name == user.email.split('@')[0]):
-                user.name = parsed.personal_info.name
-    
+            try:
+                result = await db.execute(select(User).where(User.id == user_id))
+                user = result.scalar_one_or_none()
+                if user and (not user.name or '@' in user.name or user.name == user.email.split('@')[0]):
+                    user.name = _safe_truncate(parsed.personal_info.name, 255)
+            except Exception as e:
+                print(f"Failed to update user name: {e}")
+
     # Coding profiles
     if parsed.coding_profiles:
-        profile.leetcode_username = parsed.coding_profiles.leetcode
-        profile.codechef_username = parsed.coding_profiles.codechef
-        profile.codeforces_username = parsed.coding_profiles.codeforces
+        profile.leetcode_username = _safe_truncate(parsed.coding_profiles.leetcode, 100)
+        profile.codechef_username = _safe_truncate(parsed.coding_profiles.codechef, 100)
+        profile.codeforces_username = _safe_truncate(parsed.coding_profiles.codeforces, 100)
         if parsed.coding_profiles.github:
-            profile.github_url = f"https://github.com/{parsed.coding_profiles.github}"
-    
-    # Add education
+            profile.github_url = _safe_truncate(f"https://github.com/{parsed.coding_profiles.github}", 500)
+
+    # COMMIT resume URL first - ensures we don't lose the file reference
+    try:
+        await db.flush()
+    except Exception as e:
+        print(f"Failed to save basic profile info: {e}")
+        await db.rollback()
+        raise
+
+    # Add education with defensive truncation
+    # CRITICAL: GPA column is VARCHAR(20) in DB - truncate to 20 chars!
     for edu in parsed.education:
-        profile.education.append(Education(
-            school=edu.school,
-            degree=edu.degree,
-            field_of_study=edu.field_of_study,
-            start_year=edu.start_year,
-            end_year=edu.end_year,
-            gpa=edu.gpa
-        ))
-    
-    # Add work experience
+        try:
+            # Extract just the numeric GPA if it has extra text
+            gpa_raw = edu.gpa or ""
+            # Try to extract just the number part (e.g., "9.25" from "9.25 (3rd Rank)")
+            import re
+            gpa_match = re.match(r'^[\d.]+', gpa_raw.strip())
+            gpa_value = gpa_match.group(0) if gpa_match else gpa_raw[:20]
+
+            profile.education.append(Education(
+                school=_safe_truncate(edu.school, 300),
+                degree=_safe_truncate(edu.degree, 200),
+                field_of_study=_safe_truncate(edu.field_of_study, 200),
+                start_year=edu.start_year,
+                end_year=edu.end_year,
+                gpa=_safe_truncate(gpa_value, 20)  # VARCHAR(20) in current DB!
+            ))
+        except Exception as e:
+            print(f"Failed to add education entry: {e}")
+            continue  # Skip this entry, continue with others
+
+    # Add work experience with defensive truncation
     for exp in parsed.work_experience:
-        profile.work_experience.append(WorkExperience(
-            company=exp.company,
-            role=exp.role,
-            city=exp.city,
-            country=exp.country,
-            start_date=exp.start_date,
-            end_date=exp.end_date,
-            is_current=exp.is_current,
-            description=exp.description
-        ))
-    
-    # Add projects
+        try:
+            profile.work_experience.append(WorkExperience(
+                company=_safe_truncate(exp.company, 300),
+                role=_safe_truncate(exp.role, 200),
+                city=_safe_truncate(exp.city, 100),
+                country=_safe_truncate(exp.country, 100),
+                start_date=_safe_truncate(exp.start_date, 20),
+                end_date=_safe_truncate(exp.end_date, 20),
+                is_current=exp.is_current,
+                description=exp.description  # Text field, no limit
+            ))
+        except Exception as e:
+            print(f"Failed to add work experience entry: {e}")
+            continue
+
+    # Add projects with defensive truncation
     for proj in parsed.projects:
-        profile.projects.append(Project(
-            name=proj.name,
-            description=proj.description,
-            technologies=proj.technologies,
-            start_year=proj.start_year,
-            end_year=proj.end_year,
-            url=proj.url
-        ))
-    
+        try:
+            profile.projects.append(Project(
+                name=_safe_truncate(proj.name, 300),
+                description=proj.description,  # Text field
+                technologies=proj.technologies[:20] if proj.technologies else [],  # Limit array size
+                start_year=proj.start_year,
+                end_year=proj.end_year,
+                url=_safe_truncate(proj.url, 500)
+            ))
+        except Exception as e:
+            print(f"Failed to add project entry: {e}")
+            continue
+
     # Add skills (deduplicated)
-    deduped_skills = deduplicate_skills(parsed.skills)
     skill_names = []
-    for skill_entry in deduped_skills:
-        skill = await get_or_create_skill(
-            db, 
-            skill_entry.name, 
-            skill_entry.category or "other"
-        )
-        if skill not in profile.skills:
-            profile.skills.append(skill)
-        skill_names.append(skill.name)
-    
+    try:
+        deduped_skills = deduplicate_skills(parsed.skills)
+        for skill_entry in deduped_skills[:50]:  # Limit to 50 skills
+            try:
+                skill = await get_or_create_skill(
+                    db,
+                    _safe_truncate(skill_entry.name, 100),
+                    skill_entry.category or "other"
+                )
+                if skill not in profile.skills:
+                    profile.skills.append(skill)
+                skill_names.append(skill.name)
+            except Exception as e:
+                print(f"Failed to add skill {skill_entry.name}: {e}")
+                continue
+    except Exception as e:
+        print(f"Failed to process skills: {e}")
+
     # Add certifications
-    for cert in parsed.certifications:
-        profile.certifications.append(Certification(
-            title=cert.title,
-            issuer=cert.issuer,
-            year=cert.year,
-            url=cert.url
-        ))
-    
+    for cert in parsed.certifications[:20]:  # Limit count
+        try:
+            profile.certifications.append(Certification(
+                title=_safe_truncate(cert.title, 300),
+                issuer=_safe_truncate(cert.issuer, 200),
+                year=cert.year,
+                url=_safe_truncate(cert.url, 500)
+            ))
+        except Exception as e:
+            print(f"Failed to add certification: {e}")
+            continue
+
     # Add publications
-    for pub in parsed.publications:
-        profile.publications.append(Publication(
-            title=pub.title,
-            publisher=pub.publisher,
-            year=pub.year,
-            url=pub.url
-        ))
-    
+    for pub in parsed.publications[:20]:
+        try:
+            profile.publications.append(Publication(
+                title=_safe_truncate(pub.title, 500),
+                publisher=_safe_truncate(pub.publisher, 300),
+                year=pub.year,
+                url=_safe_truncate(pub.url, 500)
+            ))
+        except Exception as e:
+            print(f"Failed to add publication: {e}")
+            continue
+
     # Add awards
-    for award in parsed.awards:
-        profile.awards.append(Award(
-            title=award.title,
-            issuer=award.issuer,
-            year=award.year
-        ))
-    
+    for award in parsed.awards[:20]:
+        try:
+            profile.awards.append(Award(
+                title=_safe_truncate(award.title, 300),
+                issuer=_safe_truncate(award.issuer, 200),
+                year=award.year
+            ))
+        except Exception as e:
+            print(f"Failed to add award: {e}")
+            continue
+
     # Add languages from resume
-    for lang in parsed.languages:
-        prof_map = {
-            "native": LanguageProficiency.NATIVE,
-            "fluent": LanguageProficiency.FLUENT,
-            "intermediate": LanguageProficiency.INTERMEDIATE,
-            "basic": LanguageProficiency.BASIC
-        }
-        proficiency = prof_map.get(lang.proficiency, LanguageProficiency.INTERMEDIATE)
-        profile.languages.append(UserLanguage(
-            language=lang.language,
-            proficiency=proficiency
-        ))
-    
-    await db.flush()
-    
-    # Index in Pinecone for vector search
+    for lang in parsed.languages[:10]:
+        try:
+            prof_map = {
+                "native": LanguageProficiency.NATIVE,
+                "fluent": LanguageProficiency.FLUENT,
+                "intermediate": LanguageProficiency.INTERMEDIATE,
+                "basic": LanguageProficiency.BASIC
+            }
+            proficiency = prof_map.get(lang.proficiency, LanguageProficiency.INTERMEDIATE)
+            profile.languages.append(UserLanguage(
+                language=_safe_truncate(lang.language, 100),
+                proficiency=proficiency
+            ))
+        except Exception as e:
+            print(f"Failed to add language: {e}")
+            continue
+
+    # Commit all profile data
+    try:
+        await db.flush()
+    except Exception as e:
+        print(f"Failed to flush profile data: {e}")
+        # Don't rollback - we already saved the resume_url
+        await db.rollback()
+        # Re-fetch profile and save just the essential fields
+        profile = await get_profile_with_relations(db, user_id)
+        if profile:
+            profile.resume_filename = _safe_truncate(filename, 255)
+            profile.resume_url = _safe_truncate(resume_url, 500)
+            profile.resume_parsed_at = datetime.now(timezone.utc)
+            await db.commit()
+        raise
+
+    # Index in Pinecone for vector search (non-critical)
     if profile.professional_summary:
         try:
             embedding_id = await vector_search_service.index_profile(
@@ -658,9 +749,10 @@ async def apply_parsed_to_profile(
             if embedding_id:
                 profile.summary_embedding_id = embedding_id
         except Exception as e:
-            print(f"Vector indexing failed (non-critical): {e}")
-    
+            print(f"Vector indexing skipped (non-critical): {str(e)[:100]}")
+
     await db.commit()
+    print(f"✅ Profile saved for user {user_id}: {len(profile.education)} edu, {len(profile.work_experience)} exp, {len(profile.skills)} skills")
 
 
 @router.get("/me", response_model=ProfileResponse)

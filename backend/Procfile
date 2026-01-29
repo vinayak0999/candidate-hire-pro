@@ -1,1 +1,1 @@
-web: gunicorn -k uvicorn.workers.UvicornWorker -w 4 --threads 2 -b 0.0.0.0:8000 --timeout 300 --graceful-timeout 60 --keep-alive 5 application:application
+web: gunicorn -k uvicorn.workers.UvicornWorker -w 2 --threads 4 -b 0.0.0.0:8000 --timeout 120 --graceful-timeout 30 --keep-alive 5 --max-requests 1000 --max-requests-jitter 100 application:application
