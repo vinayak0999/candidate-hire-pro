@@ -732,11 +732,32 @@ async def proxy_content(
         raise HTTPException(status_code=400, detail="Invalid URL source")
     
     try:
-        # We use a generator to keep the client session open during streaming
-        async def stream_generator():
-            async with httpx.AsyncClient() as client:
+        # Use a single client for both head and stream to be resource efficient
+        client = httpx.AsyncClient(timeout=60.0)
+
+        try:
+            # Fetch header info first to set media_type correctly without loading body
+            head_response = await client.head(url, timeout=10.0)
+
+            # Default to upstream content-type
+            media_type = head_response.headers.get("content-type", "application/octet-stream")
+
+            # FORCE override based on file extension because Supabase/upstream often sends text/plain
+            lower_url = url.lower()
+            if lower_url.endswith('.html') or lower_url.endswith('.htm'):
+                media_type = "text/html; charset=utf-8"
+            elif lower_url.endswith('.pdf'):
+                media_type = "application/pdf"
+
+            # Override header for PDF/HTML inline display if needed
+            headers = {
+                "Access-Control-Allow-Origin": "*",
+                "Content-Disposition": "inline"
+            }
+
+            async def stream_generator():
                 try:
-                    async with client.stream("GET", url, timeout=60.0) as response:
+                    async with client.stream("GET", url) as response:
                         response.raise_for_status()
                         async for chunk in response.aiter_bytes():
                             yield chunk
@@ -744,32 +765,20 @@ async def proxy_content(
                     # Log error or handle gracefully (streaming might have started)
                     print(f"Stream error: {e}")
                     raise
+                finally:
+                    # Ensure client is closed when generator finishes or errors
+                    await client.aclose()
 
-        # Fetch header info first to set media_type correctly without loading body
-        async with httpx.AsyncClient() as client:
-             head_response = await client.head(url, timeout=10.0)
-        
-        # Default to upstream content-type
-        media_type = head_response.headers.get("content-type", "application/octet-stream")
-        
-        # FORCE override based on file extension because Supabase/upstream often sends text/plain
-        lower_url = url.lower()
-        if lower_url.endswith('.html') or lower_url.endswith('.htm'):
-            media_type = "text/html; charset=utf-8"
-        elif lower_url.endswith('.pdf'):
-            media_type = "application/pdf"
+            return StreamingResponse(
+                stream_generator(),
+                media_type=media_type,
+                headers=headers
+            )
             
-        # Override header for PDF/HTML inline display if needed
-        headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Disposition": "inline"
-        }
-
-        return StreamingResponse(
-            stream_generator(),
-            media_type=media_type,
-            headers=headers
-        )
+        except Exception:
+            # If initial head request fails, close client immediately
+            await client.aclose()
+            raise
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch content: {str(e)}")

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAntiCheat, useTestTimer } from '../../hooks/useAntiCheat';
 import { API_BASE_URL, API_HOST } from '../../services/api';
@@ -53,31 +53,33 @@ export default function TestTaking() {
     const [warningMessage, setWarningMessage] = useState('');
 
     // Anti-cheat hook with 10K+ security
+    const handleViolation = useCallback((type: string, count: number) => {
+        console.log(`Security Violation: ${type}, count: ${count}`);
+
+        // Report ALL violations to backend
+        reportViolation(type);
+
+        if (type === 'tab_switch' || type === 'window_blur') {
+            const max = session?.max_tab_switches_allowed || 3;
+            setWarningMessage(`⚠️ Focus lost (${count}/${max}). Stay on this page.`);
+            setShowWarning(true);
+        } else if (type === 'fullscreen_exit') {
+            setWarningMessage(`⚠️ Fullscreen exit detected. Please stay in fullscreen mode.`);
+            setShowWarning(true);
+        } else if (type === 'devtools_open') {
+            setWarningMessage(`🚨 Developer Tools detected! This has been flagged.`);
+            setShowWarning(true);
+        } else if (type === 'shortcut_blocked') {
+            setWarningMessage(`⚠️ Keyboard shortcuts are disabled during the test.`);
+            setShowWarning(true);
+        } else if (type === 'copy_attempt' || type === 'paste_attempt') {
+            setWarningMessage(`⚠️ Copy/Paste is disabled during the test.`);
+            setShowWarning(true);
+        }
+    }, [reportViolation, session?.max_tab_switches_allowed]);
+
     const antiCheat = useAntiCheat({
-        onViolation: (type, count) => {
-            console.log(`Security Violation: ${type}, count: ${count}`);
-
-            // Report ALL violations to backend
-            reportViolation(type);
-
-            if (type === 'tab_switch' || type === 'window_blur') {
-                const max = session?.max_tab_switches_allowed || 3;
-                setWarningMessage(`⚠️ Focus lost (${count}/${max}). Stay on this page.`);
-                setShowWarning(true);
-            } else if (type === 'fullscreen_exit') {
-                setWarningMessage(`⚠️ Fullscreen exit detected. Please stay in fullscreen mode.`);
-                setShowWarning(true);
-            } else if (type === 'devtools_open') {
-                setWarningMessage(`🚨 Developer Tools detected! This has been flagged.`);
-                setShowWarning(true);
-            } else if (type === 'shortcut_blocked') {
-                setWarningMessage(`⚠️ Keyboard shortcuts are disabled during the test.`);
-                setShowWarning(true);
-            } else if (type === 'copy_attempt' || type === 'paste_attempt') {
-                setWarningMessage(`⚠️ Copy/Paste is disabled during the test.`);
-                setShowWarning(true);
-            }
-        },
+        onViolation: handleViolation,
         maxTabSwitches: session?.max_tab_switches_allowed || 3,
         maxFullscreenExits: 2,
         enableCopyProtection: true,
@@ -96,7 +98,7 @@ export default function TestTaking() {
     );
 
     // Report violation to backend
-    const reportViolation = async (type: string) => {
+    const reportViolation = useCallback(async (type: string) => {
         if (!session) return;
         try {
             const token = localStorage.getItem('access_token');
@@ -112,7 +114,7 @@ export default function TestTaking() {
         } catch (error) {
             console.error('Failed to report violation:', error);
         }
-    };
+    }, [session]);
 
     // Start test session
     useEffect(() => {
@@ -359,6 +361,34 @@ export default function TestTaking() {
     }
 
     const currentQuestion = session.questions[currentQuestionIndex];
+
+    // Memoize documents to prevent InPageBrowser re-renders
+    const documents = useMemo(() => {
+        if (!currentQuestion || !currentQuestion.documents) return [];
+        return currentQuestion.documents.map(d => {
+            const isOffice = /\.(docx?|xlsx?|pptx?)$/i.test(d.content || '');
+            let contentUrl = d.content;
+
+            if (d.content?.startsWith('/')) {
+                contentUrl = getMediaUrl(d.content);
+            } else if (d.content?.startsWith('http')) {
+                if (isOffice) {
+                    // Use MS Office Viewer for Office files (better compatibility)
+                    contentUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.content)}`;
+                } else {
+                    // Use proxy for others (HTML, PDF, etc)
+                    contentUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/tests/content-proxy?url=${encodeURIComponent(d.content)}`;
+                }
+            }
+
+            return {
+                id: d.id,
+                title: d.title,
+                content: contentUrl
+            };
+        });
+    }, [currentQuestion]);
+
     if (!currentQuestion) {
         return (
             <div className="test-error">
@@ -512,28 +542,7 @@ export default function TestTaking() {
                                             ? undefined
                                             : currentQuestion.html_content || ''
                                     }
-                                    documents={(currentQuestion.documents || []).map(d => {
-                                        const isOffice = /\.(docx?|xlsx?|pptx?)$/i.test(d.content || '');
-                                        let contentUrl = d.content;
-
-                                        if (d.content?.startsWith('/')) {
-                                            contentUrl = getMediaUrl(d.content);
-                                        } else if (d.content?.startsWith('http')) {
-                                            if (isOffice) {
-                                                // Use MS Office Viewer for Office files (better compatibility)
-                                                contentUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.content)}`;
-                                            } else {
-                                                // Use proxy for others (HTML, PDF, etc)
-                                                contentUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/tests/content-proxy?url=${encodeURIComponent(d.content)}`;
-                                            }
-                                        }
-
-                                        return {
-                                            id: d.id,
-                                            title: d.title,
-                                            content: contentUrl
-                                        };
-                                    })}
+                                    documents={documents}
                                 />
                                 <div className="agent-answer-section">
                                     <label>Upload Your Report</label>
