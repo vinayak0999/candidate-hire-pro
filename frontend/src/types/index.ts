@@ -31,6 +31,7 @@ export interface LoginCredentials {
 export interface AuthToken {
     access_token: string;
     token_type: string;
+    profile_complete?: boolean;
 }
 
 // Job types
