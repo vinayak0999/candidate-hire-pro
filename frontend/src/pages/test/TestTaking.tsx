@@ -515,30 +515,54 @@ export default function TestTaking() {
     const processedDocs = useMemo(() => {
         if (!currentQuestion?.documents) return [];
         return currentQuestion.documents.map(d => {
+            const contentLower = (d.content || '').toLowerCase();
+            const isPdf = contentLower.endsWith('.pdf');
+            const isHtml = contentLower.endsWith('.html') || contentLower.endsWith('.htm');
             const isOffice = /\.(docx?|xlsx?|pptx?)$/i.test(d.content || '');
+
             let contentUrl = d.content;
 
             if (d.content?.startsWith('/')) {
+                // Local file - convert to full URL
                 contentUrl = getMediaUrl(d.content);
             } else if (d.content?.startsWith('http')) {
-                if (isOffice) {
-                    contentUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.content)}`;
-                } else {
+                // Remote file - handle based on type
+                // PDF and HTML: pass through directly (InPageBrowser handles rendering)
+                // Office: InPageBrowser will use Office viewer
+                // Other: use content proxy
+                if (!isPdf && !isHtml && !isOffice) {
                     contentUrl = `${API_BASE_URL}/tests/content-proxy?url=${encodeURIComponent(d.content)}`;
                 }
+                // PDF, HTML, Office files pass through as-is
+                // InPageBrowser component handles the appropriate rendering
             }
+
             return { id: d.id, title: d.title, content: contentUrl };
         });
     }, [currentQuestion?.documents]);
 
     const processedHtmlUrl = useMemo(() => {
         if (!currentQuestion?.html_content) return undefined;
+
+        const contentLower = currentQuestion.html_content.toLowerCase();
+        const isPdf = contentLower.endsWith('.pdf');
+        const isHtml = contentLower.endsWith('.html') || contentLower.endsWith('.htm');
+
         if (currentQuestion.html_content.startsWith('/')) {
+            // Local file - convert to full URL
             return getMediaUrl(currentQuestion.html_content);
         }
+
         if (currentQuestion.html_content.startsWith('http')) {
+            // Remote file
+            // PDF and HTML: pass through directly (InPageBrowser handles rendering)
+            if (isPdf || isHtml) {
+                return currentQuestion.html_content;
+            }
+            // Other URLs: use content proxy
             return `${API_BASE_URL}/tests/content-proxy?url=${encodeURIComponent(currentQuestion.html_content)}`;
         }
+
         return undefined;
     }, [currentQuestion?.html_content]);
 
@@ -791,6 +815,13 @@ export default function TestTaking() {
                         {/* Agent Analysis */}
                         {currentQuestion?.question_type === 'agent_analysis' && (
                             <div className="agent-area">
+                                {/* Debug info - remove in production */}
+                                {!processedHtmlUrl && !currentQuestion.html_content && processedDocs.length === 0 && (
+                                    <div style={{ padding: '10px', background: '#fff3cd', color: '#856404', marginBottom: '10px', borderRadius: '4px' }}>
+                                        ⚠️ No content configured for this question. Please contact admin.
+                                        <br /><small>Question ID: {currentQuestion.id}</small>
+                                    </div>
+                                )}
                                 <InPageBrowser
                                     key={`browser-${currentQuestion.id}`}
                                     htmlUrl={processedHtmlUrl}

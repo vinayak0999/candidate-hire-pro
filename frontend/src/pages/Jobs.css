@@ -3,7 +3,6 @@
    ============================================ */
 
 .jobs-page {
-    /* Fluid width handled by parent .main-content padding */
     width: 100%;
     max-width: 1400px;
     margin: 0 auto;
@@ -11,6 +10,17 @@
 
 .fade-in {
     animation: fadeIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* --- Header Section --- */
@@ -40,6 +50,7 @@
     display: grid;
     grid-template-columns: 1fr 340px;
     gap: 40px;
+    align-items: start;
 }
 
 /* Toolbar - Glass Bar */
@@ -54,12 +65,9 @@
     gap: 16px;
     border: 1px solid #E2E8F0;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
-    /* Sticky Positioning */
     position: sticky;
     top: 90px;
-    /* Header (74) + Gap (16) */
     z-index: 40;
-    /* Below Header (900) but above cards */
 }
 
 .search-wrapper {
@@ -174,6 +182,8 @@
 
 .job-header-info {
     flex: 1;
+    min-width: 0;
+    padding-right: 80px;
 }
 
 .job-role {
@@ -299,6 +309,14 @@
     transform: translateY(-1px);
 }
 
+.btn-view-job:disabled {
+    background: #E2E8F0;
+    color: #94A3B8;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 .btn-apply-job,
 .btn-start-test {
     width: 100%;
@@ -334,7 +352,7 @@
     box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
-/* --- Sidebar --- */
+/* --- Sidebar Summary Widget --- */
 .jobs-sidebar {
     display: flex;
     flex-direction: column;
@@ -354,29 +372,35 @@
 }
 
 .widget-title {
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 1.1rem;
+    font-weight: 700;
     color: #0F172A;
     margin-bottom: 20px;
     padding-bottom: 16px;
     border-bottom: 1px solid #F1F5F9;
 }
 
+/* FIXED: Tracker item layout - proper structure */
 .tracker-item {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 12px 0;
+    padding: 14px 0;
+    border-bottom: 1px solid #F8FAFC;
+}
+
+.tracker-item:last-child {
+    border-bottom: none;
 }
 
 .tracker-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1rem;
+    font-size: 1.1rem;
     flex-shrink: 0;
 }
 
@@ -396,21 +420,86 @@
     background: #FEE2E2;
 }
 
+/* CRITICAL FIX: tracker-info with proper flex column layout */
+.tracker-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
 .t-label {
     font-size: 0.8rem;
     color: #64748B;
     font-weight: 500;
-    margin-bottom: 2px;
+    line-height: 1.3;
 }
 
 .t-value {
-    font-size: 1.1rem;
+    font-size: 1.35rem;
     font-weight: 700;
     color: #0F172A;
+    line-height: 1;
 }
 
 .t-value.error {
     color: #EF4444;
+}
+
+/* Activity section */
+.tracker-item.activity-section {
+    margin-top: 12px;
+    padding-top: 16px;
+    border-top: 1px solid #F1F5F9;
+    border-bottom: none;
+}
+
+.activity-section .tracker-info {
+    width: 100%;
+}
+
+.activity-section .t-value {
+    font-size: 0.9rem;
+    color: #94A3B8;
+    font-weight: 500;
+}
+
+/* Loading & Empty States */
+.loading-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 40px;
+    color: #64748B;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 40px;
+    background: white;
+    border-radius: 18px;
+    border: 1px solid #E2E8F0;
+}
+
+.empty-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+    opacity: 0.6;
+}
+
+.empty-state h3 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0F172A;
+    margin-bottom: 8px;
+}
+
+.empty-state p {
+    color: #64748B;
+    font-size: 0.95rem;
 }
 
 /* Responsive Media Queries */
@@ -418,6 +507,43 @@
     .jobs-layout {
         grid-template-columns: 1fr;
         gap: 32px;
+    }
+
+    .jobs-sidebar {
+        position: relative;
+        top: 0;
+        order: -1;
+    }
+
+    .sidebar-widget {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 20px;
+    }
+
+    .widget-title {
+        width: 100%;
+        margin-bottom: 8px;
+        padding-bottom: 12px;
+    }
+
+    .tracker-item {
+        flex: 1;
+        min-width: 140px;
+        padding: 12px 14px;
+        background: #F8FAFC;
+        border-radius: 12px;
+        border-bottom: none;
+    }
+
+    .tracker-item.activity-section {
+        width: 100%;
+        flex: none;
+        margin-top: 0;
+        padding-top: 12px;
+        border-top: none;
+        background: transparent;
     }
 }
 

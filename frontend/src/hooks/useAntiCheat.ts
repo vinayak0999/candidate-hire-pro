@@ -42,6 +42,10 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
     const stateRef = useRef(state);
     stateRef.current = state;
 
+    // Use ref to prevent re-adding listeners when callback changes (memory optimization)
+    const onViolationRef = useRef(onViolation);
+    onViolationRef.current = onViolation;
+
     // Tab visibility detection
     useEffect(() => {
         if (!enableTabDetection) return;
@@ -57,13 +61,13 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
                     isFlagged: prev.isFlagged || isFlagged
                 }));
 
-                onViolation?.('tab_switch', newCount);
+                onViolationRef.current?.('tab_switch', newCount);
             }
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [onViolation, maxTabSwitches, enableTabDetection]);
+    }, [maxTabSwitches, enableTabDetection]);
 
     // Fullscreen detection
     useEffect(() => {
@@ -84,7 +88,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
                     isFlagged: prev.isFlagged || isFlagged
                 }));
 
-                onViolation?.('fullscreen_exit', newCount);
+                onViolationRef.current?.('fullscreen_exit', newCount);
             } else {
                 setState(prev => ({ ...prev, isFullscreen: isNowFullscreen }));
             }
@@ -92,7 +96,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
 
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    }, [enableFullscreenMode, onViolation, maxFullscreenExits]);
+    }, [enableFullscreenMode, maxFullscreenExits]);
 
     // Copy/Paste protection
     useEffect(() => {
@@ -107,12 +111,12 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
                 copyAttempts: newCount
             }));
 
-            onViolation?.('copy_attempt', newCount);
+            onViolationRef.current?.('copy_attempt', newCount);
         };
 
         const handlePaste = (e: ClipboardEvent) => {
             e.preventDefault();
-            onViolation?.('paste_attempt', 1);
+            onViolationRef.current?.('paste_attempt', 1);
         };
 
         const handleContextMenu = (e: MouseEvent) => {
@@ -128,7 +132,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
             document.removeEventListener('paste', handlePaste);
             document.removeEventListener('contextmenu', handleContextMenu);
         };
-    }, [enableCopyProtection, onViolation]);
+    }, [enableCopyProtection]);
 
     // DevTools Detection (10K+ Security)
     useEffect(() => {
@@ -141,7 +145,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
 
             if ((widthThreshold || heightThreshold) && !devToolsOpen) {
                 devToolsOpen = true;
-                onViolation?.('devtools_open', 1);
+                onViolationRef.current?.('devtools_open', 1);
             } else if (!widthThreshold && !heightThreshold) {
                 devToolsOpen = false;
             }
@@ -149,7 +153,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
 
         const interval = setInterval(detectDevTools, 1000);
         return () => clearInterval(interval);
-    }, [onViolation]);
+    }, []);
 
     // Keyboard Shortcut Blocking (F12, Ctrl+Shift+I, etc.)
     useEffect(() => {
@@ -157,25 +161,25 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
             // F12
             if (e.key === 'F12') {
                 e.preventDefault();
-                onViolation?.('shortcut_blocked', 1);
+                onViolationRef.current?.('shortcut_blocked', 1);
                 return;
             }
             // Ctrl/Cmd + Shift + I (DevTools)
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'i') {
                 e.preventDefault();
-                onViolation?.('shortcut_blocked', 1);
+                onViolationRef.current?.('shortcut_blocked', 1);
                 return;
             }
             // Ctrl/Cmd + Shift + J (Console)
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'j') {
                 e.preventDefault();
-                onViolation?.('shortcut_blocked', 1);
+                onViolationRef.current?.('shortcut_blocked', 1);
                 return;
             }
             // Ctrl/Cmd + U (View Source)
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u') {
                 e.preventDefault();
-                onViolation?.('shortcut_blocked', 1);
+                onViolationRef.current?.('shortcut_blocked', 1);
                 return;
             }
             // Ctrl/Cmd + S (Save Page)
@@ -192,7 +196,7 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
 
         document.addEventListener('keydown', blockShortcuts);
         return () => document.removeEventListener('keydown', blockShortcuts);
-    }, [onViolation]);
+    }, []);
 
     // Window Blur Detection (Alt+Tab, etc.) - Only if tab detection is enabled
     useEffect(() => {
@@ -205,12 +209,12 @@ export function useAntiCheat(options: UseAntiCheatOptions = {}) {
                 tabSwitches: newCount,
                 isFlagged: prev.isFlagged || newCount >= maxTabSwitches
             }));
-            onViolation?.('window_blur', newCount);
+            onViolationRef.current?.('window_blur', newCount);
         };
 
         window.addEventListener('blur', handleBlur);
         return () => window.removeEventListener('blur', handleBlur);
-    }, [onViolation, maxTabSwitches, enableTabDetection]);
+    }, [maxTabSwitches, enableTabDetection]);
 
     // Request fullscreen
     const requestFullscreen = useCallback(async () => {

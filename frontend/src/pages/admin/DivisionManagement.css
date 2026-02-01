@@ -22,7 +22,7 @@
 }
 
 .division-header .header-icon {
-    color: #667eea;
+    color: #1E40AF;
 }
 
 .division-header .subtitle {
@@ -36,7 +36,7 @@
     align-items: center;
     gap: 8px;
     padding: 12px 24px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
     color: white;
     border: none;
     border-radius: 12px;
@@ -48,7 +48,7 @@
 
 .add-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 8px 20px rgba(30, 64, 175, 0.4);
 }
 
 /* Messages */
@@ -126,8 +126,8 @@
 .form-group input:focus,
 .form-group textarea:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+    border-color: #1E40AF;
+    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.15);
 }
 
 .form-group textarea {
@@ -166,7 +166,7 @@
     align-items: center;
     gap: 6px;
     padding: 12px 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
     color: white;
     border: none;
     border-radius: 10px;
@@ -178,7 +178,7 @@
 
 .submit-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 6px 16px rgba(30, 64, 175, 0.4);
 }
 
 /* Divisions Grid */
@@ -238,7 +238,7 @@
 
 .division-card:hover {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-    border-color: #667eea;
+    border-color: #1E40AF;
 }
 
 .division-card.inactive {
@@ -273,7 +273,7 @@
 }
 
 .test-count {
-    color: #667eea;
+    color: #1E40AF;
     font-weight: 500;
 }
 
@@ -472,7 +472,7 @@
 .doc-number {
     font-weight: 600;
     font-size: 14px;
-    color: #667eea;
+    color: #1E40AF;
 }
 
 .doc-fields {
@@ -496,8 +496,8 @@
 .doc-fields input:focus,
 .doc-fields textarea:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+    border-color: #1E40AF;
+    box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.15);
 }
 
 .content-field {
@@ -553,7 +553,7 @@
 
 .btn-primary {
     padding: 10px 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
     color: white;
     border: none;
     border-radius: 10px;
@@ -565,7 +565,7 @@
 
 .btn-primary:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 4px 12px rgba(30, 64, 175, 0.4);
 }
 
 .btn-primary:disabled {

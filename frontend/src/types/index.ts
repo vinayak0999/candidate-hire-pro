@@ -20,6 +20,7 @@ export interface User {
     total_badges?: number;
     total_certificates?: number;
     created_at: string;
+    profile_complete?: boolean;  // True if resume has been uploaded
 }
 
 export interface LoginCredentials {

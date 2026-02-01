@@ -100,7 +100,7 @@ interface CandidateProfile {
 // ===== AVATAR COMPONENT =====
 const Avatar = memo(({ name, avatarUrl, size = 40 }: { name: string; avatarUrl?: string; size?: number }) => {
     const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-    const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6'];
+    const colors = ['#1E40AF', '#1E3A8A', '#ec4899', '#f59e0b', '#10b981', '#3b82f6'];
     const colorIndex = name.charCodeAt(0) % colors.length;
 
     if (avatarUrl) {

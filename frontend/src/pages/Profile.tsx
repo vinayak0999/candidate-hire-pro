@@ -99,10 +99,211 @@ export default function Profile({ user }: ProfileProps) {
     const [error, setError] = useState<string | null>(null);
     const [dragActive, setDragActive] = useState(false);
 
+    // Inline Edit State for Tab Content
+    const [editMode, setEditMode] = useState<Record<string, boolean>>({});
+    const [editValues, setEditValues] = useState<Record<string, string>>({});
+    const [saving, setSaving] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+    // Modal/Form State for CRUD operations
+    const [showAddModal, setShowAddModal] = useState<string | null>(null); // 'education' | 'experience' | 'project' | 'skill'
+    const [editingItem, setEditingItem] = useState<{ type: string; id: number; data: Record<string, unknown> } | null>(null);
+    const [formData, setFormData] = useState<Record<string, unknown>>({});
+    const [formSaving, setFormSaving] = useState(false);
+
     // Computed values from profile data
     const latestEducation = profile?.education?.[0] || null;
     const latestExperience = profile?.work_experience?.[0] || null;
     const hasWorkExperience = (profile?.work_experience?.length || 0) > 0;
+
+    // Toggle edit mode for a field
+    const toggleEdit = useCallback((field: string) => {
+        setEditMode(prev => ({ ...prev, [field]: !prev[field] }));
+        // Initialize edit value with current profile value
+        if (!editMode[field] && profile) {
+            const currentValue = (profile as unknown as Record<string, unknown>)[field];
+            setEditValues(prev => ({
+                ...prev,
+                [field]: currentValue !== null && currentValue !== undefined ? String(currentValue) : ''
+            }));
+        }
+    }, [editMode, profile]);
+
+    // Save a single field
+    const saveField = useCallback(async (field: string) => {
+        if (!profile) return;
+
+        setSaving(true);
+        try {
+            const updateData: Record<string, string | number | undefined> = {};
+            const value = editValues[field];
+
+            // Handle number fields
+            if (field === 'years_of_experience') {
+                updateData[field] = value ? parseFloat(value) : undefined;
+            } else {
+                updateData[field] = value || undefined;
+            }
+
+            const updatedProfile = await profileApi.updateProfile(updateData);
+            setProfile(updatedProfile);
+
+            // Exit edit mode
+            setEditMode(prev => ({ ...prev, [field]: false }));
+
+            // Show success message
+            setSaveMessage('✓ Saved successfully!');
+            setTimeout(() => setSaveMessage(null), 2000);
+        } catch (err: any) {
+            console.error('Failed to save:', err);
+            setError(err.response?.data?.detail || 'Failed to save changes');
+        } finally {
+            setSaving(false);
+        }
+    }, [profile, editValues]);
+
+    // Cancel editing
+    const cancelEdit = useCallback((field: string) => {
+        setEditMode(prev => ({ ...prev, [field]: false }));
+        setEditValues(prev => {
+            const updated = { ...prev };
+            delete updated[field];
+            return updated;
+        });
+    }, []);
+
+    // Update edit value
+    const updateEditValue = useCallback((field: string, value: string) => {
+        setEditValues(prev => ({ ...prev, [field]: value }));
+    }, []);
+
+    // Open add modal for a specific type
+    const openAddModal = useCallback((type: string) => {
+        setShowAddModal(type);
+        setFormData({});
+        setEditingItem(null);
+    }, []);
+
+    // Open edit modal for a specific item
+    const openEditModal = useCallback((type: string, id: number, data: Record<string, unknown>) => {
+        setShowAddModal(type);
+        setEditingItem({ type, id, data });
+        setFormData(data);
+    }, []);
+
+    // Close modal
+    const closeModal = useCallback(() => {
+        setShowAddModal(null);
+        setEditingItem(null);
+        setFormData({});
+    }, []);
+
+    // Update form data
+    const updateFormField = useCallback((field: string, value: unknown) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    }, []);
+
+    // Handle form submission for add/edit
+    const handleFormSubmit = useCallback(async () => {
+        if (!showAddModal) return;
+
+        setFormSaving(true);
+        try {
+            let result;
+
+            if (editingItem) {
+                // Update existing
+                switch (showAddModal) {
+                    case 'education':
+                        result = await profileApi.updateEducation(editingItem.id, formData as any);
+                        break;
+                    case 'experience':
+                        result = await profileApi.updateExperience(editingItem.id, formData as any);
+                        break;
+                    case 'project':
+                        result = await profileApi.updateProject(editingItem.id, formData as any);
+                        break;
+                }
+            } else {
+                // Add new
+                switch (showAddModal) {
+                    case 'education':
+                        result = await profileApi.addEducation(formData as any);
+                        break;
+                    case 'experience':
+                        result = await profileApi.addExperience(formData as any);
+                        break;
+                    case 'project':
+                        result = await profileApi.addProject(formData as any);
+                        break;
+                    case 'skill':
+                        result = await profileApi.addSkill(formData as any);
+                        break;
+                }
+            }
+
+            if (result) {
+                setProfile(result);
+                setSaveMessage('✓ Saved successfully!');
+                setTimeout(() => setSaveMessage(null), 2000);
+            }
+            closeModal();
+        } catch (err: any) {
+            console.error('Failed to save:', err);
+            setError(err.response?.data?.detail || 'Failed to save');
+        } finally {
+            setFormSaving(false);
+        }
+    }, [showAddModal, editingItem, formData, closeModal]);
+
+    // Delete handlers
+    const handleDeleteEducation = useCallback(async (id: number) => {
+        if (!confirm('Delete this education entry?')) return;
+        try {
+            await profileApi.deleteEducation(id);
+            fetchProfile();
+            setSaveMessage('✓ Deleted successfully!');
+            setTimeout(() => setSaveMessage(null), 2000);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to delete');
+        }
+    }, []);
+
+    const handleDeleteExperience = useCallback(async (id: number) => {
+        if (!confirm('Delete this experience entry?')) return;
+        try {
+            await profileApi.deleteExperience(id);
+            fetchProfile();
+            setSaveMessage('✓ Deleted successfully!');
+            setTimeout(() => setSaveMessage(null), 2000);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to delete');
+        }
+    }, []);
+
+    const handleDeleteProject = useCallback(async (id: number) => {
+        if (!confirm('Delete this project?')) return;
+        try {
+            await profileApi.deleteProject(id);
+            fetchProfile();
+            setSaveMessage('✓ Deleted successfully!');
+            setTimeout(() => setSaveMessage(null), 2000);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to delete');
+        }
+    }, []);
+
+    const handleRemoveSkill = useCallback(async (id: number) => {
+        if (!confirm('Remove this skill?')) return;
+        try {
+            await profileApi.removeSkill(id);
+            fetchProfile();
+            setSaveMessage('✓ Removed successfully!');
+            setTimeout(() => setSaveMessage(null), 2000);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to remove');
+        }
+    }, []);
 
     useEffect(() => {
         fetchProfile();
@@ -232,6 +433,9 @@ export default function Profile({ user }: ProfileProps) {
                     <div className="tab-panel">
                         <div className="tab-panel-header">
                             <h3>🎓 Academic Information</h3>
+                            <button className="add-entry-btn" onClick={() => openAddModal('education')}>
+                                + Add Education
+                            </button>
                         </div>
                         {profile?.education && profile.education.length > 0 ? (
                             <div className="entries-list">
@@ -245,9 +449,32 @@ export default function Profile({ user }: ProfileProps) {
                                                     {edu.field_of_study && !edu.degree?.toLowerCase().includes(edu.field_of_study.toLowerCase()) && ` in ${edu.field_of_study}`}
                                                 </p>
                                             </div>
-                                            {edu.gpa && (
-                                                <span className="entry-badge">GPA: {edu.gpa}</span>
-                                            )}
+                                            <div className="entry-actions">
+                                                {edu.gpa && (
+                                                    <span className="entry-badge">GPA: {edu.gpa}</span>
+                                                )}
+                                                <button
+                                                    className="entry-action-btn edit"
+                                                    onClick={() => openEditModal('education', edu.id, {
+                                                        school: edu.school,
+                                                        degree: edu.degree,
+                                                        field_of_study: edu.field_of_study,
+                                                        start_year: edu.start_year,
+                                                        end_year: edu.end_year,
+                                                        gpa: edu.gpa
+                                                    })}
+                                                    title="Edit"
+                                                >
+                                                    ✏️
+                                                </button>
+                                                <button
+                                                    className="entry-action-btn delete"
+                                                    onClick={() => handleDeleteEducation(edu.id)}
+                                                    title="Delete"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
                                         </div>
                                         <div className="entry-meta">
                                             <span className="entry-date">
@@ -261,7 +488,7 @@ export default function Profile({ user }: ProfileProps) {
                             <div className="empty-state">
                                 <span className="empty-state-icon">📚</span>
                                 <h4 className="empty-state-title">No Education Data</h4>
-                                <p className="empty-state-text">Upload your resume to automatically populate your education history.</p>
+                                <p className="empty-state-text">Upload your resume or click "Add Education" to add your education history.</p>
                             </div>
                         )}
                     </div>
@@ -272,6 +499,9 @@ export default function Profile({ user }: ProfileProps) {
                     <div className="tab-panel">
                         <div className="tab-panel-header">
                             <h3>💼 Work Experience</h3>
+                            <button className="add-entry-btn" onClick={() => openAddModal('experience')}>
+                                + Add Experience
+                            </button>
                         </div>
 
                         {/* Data Annotation Interest Card - From Profile Wizard */}
@@ -303,9 +533,34 @@ export default function Profile({ user }: ProfileProps) {
                                                 <h4 className="entry-title">{exp.role}</h4>
                                                 <p className="entry-subtitle">{exp.company}</p>
                                             </div>
-                                            {exp.is_current && (
-                                                <span className="entry-badge">Current</span>
-                                            )}
+                                            <div className="entry-actions">
+                                                {exp.is_current && (
+                                                    <span className="entry-badge">Current</span>
+                                                )}
+                                                <button
+                                                    className="entry-action-btn edit"
+                                                    onClick={() => openEditModal('experience', exp.id, {
+                                                        company: exp.company,
+                                                        role: exp.role,
+                                                        city: exp.city,
+                                                        country: exp.country,
+                                                        start_date: exp.start_date,
+                                                        end_date: exp.end_date,
+                                                        is_current: exp.is_current,
+                                                        description: exp.description
+                                                    })}
+                                                    title="Edit"
+                                                >
+                                                    ✏️
+                                                </button>
+                                                <button
+                                                    className="entry-action-btn delete"
+                                                    onClick={() => handleDeleteExperience(exp.id)}
+                                                    title="Delete"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
                                         </div>
                                         <div className="entry-meta">
                                             <span className="entry-date">
@@ -331,7 +586,7 @@ export default function Profile({ user }: ProfileProps) {
                             <div className="fresher-card">
                                 <div className="fresher-icon">🎓</div>
                                 <h4>Fresh Graduate</h4>
-                                <p>No professional work experience yet. Ready to start your career journey!</p>
+                                <p>No professional work experience yet. Click "Add Experience" to add your work history.</p>
                                 <div className="fresher-tips">
                                     <span>Your academic background and projects showcase your potential.</span>
                                 </div>
@@ -398,12 +653,50 @@ export default function Profile({ user }: ProfileProps) {
                             </div>
                         </div>
 
-                        {profile?.professional_summary && (
-                            <div className="summary-card">
+                        {/* Professional Summary - Editable */}
+                        <div className="summary-card editable-section">
+                            <div className="section-header">
                                 <h4>✨ Professional Summary</h4>
-                                <p>{profile.professional_summary}</p>
+                                {!editMode['professional_summary'] ? (
+                                    <button
+                                        className="edit-section-btn"
+                                        onClick={() => toggleEdit('professional_summary')}
+                                    >
+                                        ✏️ Edit
+                                    </button>
+                                ) : (
+                                    <div className="edit-actions">
+                                        <button
+                                            className="save-btn"
+                                            onClick={() => saveField('professional_summary')}
+                                            disabled={saving}
+                                        >
+                                            {saving ? '...' : '✓ Save'}
+                                        </button>
+                                        <button
+                                            className="cancel-btn"
+                                            onClick={() => cancelEdit('professional_summary')}
+                                            disabled={saving}
+                                        >
+                                            ✕ Cancel
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                        )}
+                            {editMode['professional_summary'] ? (
+                                <textarea
+                                    className="edit-textarea"
+                                    value={editValues['professional_summary'] || ''}
+                                    onChange={(e) => updateEditValue('professional_summary', e.target.value)}
+                                    placeholder="Write a brief professional summary about yourself..."
+                                    rows={5}
+                                    autoFocus
+                                />
+                            ) : (
+                                <p>{profile?.professional_summary || 'No summary yet. Click Edit to add one.'}</p>
+                            )}
+                            {saveMessage && <span className="save-message">{saveMessage}</span>}
+                        </div>
                     </div>
                 );
 
@@ -416,7 +709,12 @@ export default function Profile({ user }: ProfileProps) {
 
                         {/* Skills Section - Always show */}
                         <div className="skills-section">
-                            <h4>Technical Skills</h4>
+                            <div className="section-header">
+                                <h4>Technical Skills</h4>
+                                <button className="add-entry-btn small" onClick={() => openAddModal('skill')}>
+                                    + Add Skill
+                                </button>
+                            </div>
                             <div className="skills-grid">
                                 {/* Data Annotation skill from wizard - Priority display */}
                                 {profile?.has_data_annotation_experience && (
@@ -428,32 +726,68 @@ export default function Profile({ user }: ProfileProps) {
                                     profile.skills.map(skill => (
                                         <span
                                             key={skill.id}
-                                            className={`skill-chip ${skill.category || 'other'}`}
+                                            className={`skill-chip with-remove ${skill.category || 'other'}`}
                                         >
                                             {skill.display_name}
+                                            <button
+                                                className="skill-remove-btn"
+                                                onClick={() => handleRemoveSkill(skill.id)}
+                                                title="Remove skill"
+                                            >
+                                                ×
+                                            </button>
                                         </span>
                                     ))
                                 ) : (
                                     !profile?.has_data_annotation_experience && (
-                                        <span className="no-skills-text">Upload resume to extract skills</span>
+                                        <span className="no-skills-text">Upload resume or add skills manually</span>
                                     )
                                 )}
                             </div>
                         </div>
 
-                        {profile?.projects && profile.projects.length > 0 ? (
-                            <div className="skills-section">
+                        {/* Projects Section */}
+                        <div className="skills-section">
+                            <div className="section-header">
                                 <h4>Projects</h4>
+                                <button className="add-entry-btn small" onClick={() => openAddModal('project')}>
+                                    + Add Project
+                                </button>
+                            </div>
+                            {profile?.projects && profile.projects.length > 0 ? (
                                 <div className="projects-grid">
                                     {profile.projects.map(proj => (
                                         <div key={proj.id} className="project-card">
                                             <div className="project-card-header">
                                                 <h5 className="project-card-title">{proj.name}</h5>
-                                                {proj.url && (
-                                                    <a href={proj.url} target="_blank" rel="noopener noreferrer" className="project-link">
-                                                        🔗
-                                                    </a>
-                                                )}
+                                                <div className="project-actions">
+                                                    {proj.url && (
+                                                        <a href={proj.url} target="_blank" rel="noopener noreferrer" className="project-link">
+                                                            🔗
+                                                        </a>
+                                                    )}
+                                                    <button
+                                                        className="entry-action-btn edit"
+                                                        onClick={() => openEditModal('project', proj.id, {
+                                                            name: proj.name,
+                                                            description: proj.description,
+                                                            technologies: proj.technologies,
+                                                            start_year: proj.start_year,
+                                                            end_year: proj.end_year,
+                                                            url: proj.url
+                                                        })}
+                                                        title="Edit"
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                    <button
+                                                        className="entry-action-btn delete"
+                                                        onClick={() => handleDeleteProject(proj.id)}
+                                                        title="Delete"
+                                                    >
+                                                        🗑️
+                                                    </button>
+                                                </div>
                                             </div>
                                             {proj.description && (
                                                 <div className="project-card-description">
@@ -474,16 +808,13 @@ export default function Profile({ user }: ProfileProps) {
                                         </div>
                                     ))}
                                 </div>
-                            </div>
-                        ) : (
-                            !profile?.skills?.length && (
-                                <div className="empty-state">
-                                    <span className="empty-state-icon">🛠️</span>
-                                    <h4 className="empty-state-title">No Skills or Projects</h4>
-                                    <p className="empty-state-text">Upload your resume to automatically extract your skills and projects.</p>
+                            ) : (
+                                <div className="empty-state small">
+                                    <span className="empty-state-icon">📁</span>
+                                    <p className="empty-state-text">No projects yet. Click "Add Project" to showcase your work.</p>
                                 </div>
-                            )
-                        )}
+                            )}
+                        </div>
                     </div>
                 );
 
@@ -491,12 +822,158 @@ export default function Profile({ user }: ProfileProps) {
                 return (
                     <div className="tab-panel">
                         <div className="tab-panel-header">
-                            <h3>⚙️ Account Settings</h3>
+                            <h3>⚙️ Profile Settings</h3>
                         </div>
-                        <div className="empty-state">
-                            <span className="empty-state-icon">🔧</span>
-                            <h4 className="empty-state-title">Settings Coming Soon</h4>
-                            <p className="empty-state-text">Account settings and preferences will be available here.</p>
+
+                        {saveMessage && <div className="success-banner">{saveMessage}</div>}
+
+                        {/* Current Position Section */}
+                        <div className="settings-section">
+                            <h4>💼 Current Position</h4>
+                            <div className="settings-grid">
+                                <div className="setting-field">
+                                    <label>Current Role</label>
+                                    {editMode['current_role'] ? (
+                                        <div className="edit-field-wrapper">
+                                            <input
+                                                type="text"
+                                                value={editValues['current_role'] || ''}
+                                                onChange={(e) => updateEditValue('current_role', e.target.value)}
+                                                placeholder="e.g., Software Engineer"
+                                                className="edit-input"
+                                                autoFocus
+                                            />
+                                            <div className="field-actions">
+                                                <button className="save-btn" onClick={() => saveField('current_role')} disabled={saving}>
+                                                    {saving ? '...' : '✓'}
+                                                </button>
+                                                <button className="cancel-btn" onClick={() => cancelEdit('current_role')}>✕</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="display-field" onClick={() => toggleEdit('current_role')}>
+                                            <span>{profile?.current_role || 'Not specified'}</span>
+                                            <button className="edit-pencil">✏️</button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="setting-field">
+                                    <label>Current Company</label>
+                                    {editMode['current_company'] ? (
+                                        <div className="edit-field-wrapper">
+                                            <input
+                                                type="text"
+                                                value={editValues['current_company'] || ''}
+                                                onChange={(e) => updateEditValue('current_company', e.target.value)}
+                                                placeholder="e.g., Google"
+                                                className="edit-input"
+                                                autoFocus
+                                            />
+                                            <div className="field-actions">
+                                                <button className="save-btn" onClick={() => saveField('current_company')} disabled={saving}>
+                                                    {saving ? '...' : '✓'}
+                                                </button>
+                                                <button className="cancel-btn" onClick={() => cancelEdit('current_company')}>✕</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="display-field" onClick={() => toggleEdit('current_company')}>
+                                            <span>{profile?.current_company || 'Not specified'}</span>
+                                            <button className="edit-pencil">✏️</button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="setting-field">
+                                    <label>Years of Experience</label>
+                                    {editMode['years_of_experience'] ? (
+                                        <div className="edit-field-wrapper">
+                                            <input
+                                                type="number"
+                                                step="0.5"
+                                                min="0"
+                                                value={editValues['years_of_experience'] || ''}
+                                                onChange={(e) => updateEditValue('years_of_experience', e.target.value)}
+                                                placeholder="e.g., 3.5"
+                                                className="edit-input"
+                                                autoFocus
+                                            />
+                                            <div className="field-actions">
+                                                <button className="save-btn" onClick={() => saveField('years_of_experience')} disabled={saving}>
+                                                    {saving ? '...' : '✓'}
+                                                </button>
+                                                <button className="cancel-btn" onClick={() => cancelEdit('years_of_experience')}>✕</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="display-field" onClick={() => toggleEdit('years_of_experience')}>
+                                            <span>{profile?.years_of_experience ? `${profile.years_of_experience} years` : 'Not specified'}</span>
+                                            <button className="edit-pencil">✏️</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Social Links Section */}
+                        <div className="settings-section">
+                            <h4>🔗 Social Links</h4>
+                            <div className="settings-grid">
+                                <div className="setting-field">
+                                    <label>LinkedIn URL</label>
+                                    {editMode['linkedin_url'] ? (
+                                        <div className="edit-field-wrapper">
+                                            <input
+                                                type="url"
+                                                value={editValues['linkedin_url'] || ''}
+                                                onChange={(e) => updateEditValue('linkedin_url', e.target.value)}
+                                                placeholder="https://linkedin.com/in/yourname"
+                                                className="edit-input"
+                                                autoFocus
+                                            />
+                                            <div className="field-actions">
+                                                <button className="save-btn" onClick={() => saveField('linkedin_url')} disabled={saving}>
+                                                    {saving ? '...' : '✓'}
+                                                </button>
+                                                <button className="cancel-btn" onClick={() => cancelEdit('linkedin_url')}>✕</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="display-field" onClick={() => toggleEdit('linkedin_url')}>
+                                            <span>{profile?.linkedin_url || 'Not specified'}</span>
+                                            <button className="edit-pencil">✏️</button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="setting-field">
+                                    <label>GitHub URL</label>
+                                    {editMode['github_url'] ? (
+                                        <div className="edit-field-wrapper">
+                                            <input
+                                                type="url"
+                                                value={editValues['github_url'] || ''}
+                                                onChange={(e) => updateEditValue('github_url', e.target.value)}
+                                                placeholder="https://github.com/username"
+                                                className="edit-input"
+                                                autoFocus
+                                            />
+                                            <div className="field-actions">
+                                                <button className="save-btn" onClick={() => saveField('github_url')} disabled={saving}>
+                                                    {saving ? '...' : '✓'}
+                                                </button>
+                                                <button className="cancel-btn" onClick={() => cancelEdit('github_url')}>✕</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="display-field" onClick={() => toggleEdit('github_url')}>
+                                            <span>{profile?.github_url || 'Not specified'}</span>
+                                            <button className="edit-pencil">✏️</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 );
@@ -648,6 +1125,270 @@ export default function Profile({ user }: ProfileProps) {
                     {renderTabContent()}
                 </div>
             </div>
+
+            {/* Add/Edit Modal */}
+            {showAddModal && (
+                <div className="modal-overlay" onClick={closeModal}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3>{editingItem ? 'Edit' : 'Add'} {showAddModal.charAt(0).toUpperCase() + showAddModal.slice(1)}</h3>
+                            <button className="modal-close" onClick={closeModal}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            {/* Education Form */}
+                            {showAddModal === 'education' && (
+                                <>
+                                    <div className="form-group">
+                                        <label>School/University *</label>
+                                        <input
+                                            type="text"
+                                            value={(formData.school as string) || ''}
+                                            onChange={e => updateFormField('school', e.target.value)}
+                                            placeholder="e.g. Harvard University"
+                                        />
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Degree</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.degree as string) || ''}
+                                                onChange={e => updateFormField('degree', e.target.value)}
+                                                placeholder="e.g. Bachelor of Science"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Field of Study</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.field_of_study as string) || ''}
+                                                onChange={e => updateFormField('field_of_study', e.target.value)}
+                                                placeholder="e.g. Computer Science"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Start Year</label>
+                                            <input
+                                                type="number"
+                                                value={(formData.start_year as number) || ''}
+                                                onChange={e => updateFormField('start_year', parseInt(e.target.value) || null)}
+                                                placeholder="2018"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>End Year</label>
+                                            <input
+                                                type="number"
+                                                value={(formData.end_year as number) || ''}
+                                                onChange={e => updateFormField('end_year', parseInt(e.target.value) || null)}
+                                                placeholder="2022"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>GPA</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.gpa as string) || ''}
+                                                onChange={e => updateFormField('gpa', e.target.value)}
+                                                placeholder="3.8"
+                                            />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Experience Form */}
+                            {showAddModal === 'experience' && (
+                                <>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Company *</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.company as string) || ''}
+                                                onChange={e => updateFormField('company', e.target.value)}
+                                                placeholder="e.g. Google"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Role *</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.role as string) || ''}
+                                                onChange={e => updateFormField('role', e.target.value)}
+                                                placeholder="e.g. Software Engineer"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>City</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.city as string) || ''}
+                                                onChange={e => updateFormField('city', e.target.value)}
+                                                placeholder="e.g. San Francisco"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Country</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.country as string) || ''}
+                                                onChange={e => updateFormField('country', e.target.value)}
+                                                placeholder="e.g. USA"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Start Date</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.start_date as string) || ''}
+                                                onChange={e => updateFormField('start_date', e.target.value)}
+                                                placeholder="e.g. 2020-01"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>End Date</label>
+                                            <input
+                                                type="text"
+                                                value={(formData.end_date as string) || ''}
+                                                onChange={e => updateFormField('end_date', e.target.value)}
+                                                placeholder="Leave empty if current"
+                                                disabled={formData.is_current as boolean}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-group checkbox">
+                                        <label>
+                                            <input
+                                                type="checkbox"
+                                                checked={(formData.is_current as boolean) || false}
+                                                onChange={e => updateFormField('is_current', e.target.checked)}
+                                            />
+                                            Currently working here
+                                        </label>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Description</label>
+                                        <textarea
+                                            value={(formData.description as string) || ''}
+                                            onChange={e => updateFormField('description', e.target.value)}
+                                            placeholder="Describe your responsibilities and achievements..."
+                                            rows={4}
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Project Form */}
+                            {showAddModal === 'project' && (
+                                <>
+                                    <div className="form-group">
+                                        <label>Project Name *</label>
+                                        <input
+                                            type="text"
+                                            value={(formData.name as string) || ''}
+                                            onChange={e => updateFormField('name', e.target.value)}
+                                            placeholder="e.g. E-commerce Platform"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Description</label>
+                                        <textarea
+                                            value={(formData.description as string) || ''}
+                                            onChange={e => updateFormField('description', e.target.value)}
+                                            placeholder="Describe the project..."
+                                            rows={3}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Technologies (comma-separated)</label>
+                                        <input
+                                            type="text"
+                                            value={(formData.technologies as string[])?.join(', ') || ''}
+                                            onChange={e => updateFormField('technologies', e.target.value.split(',').map(t => t.trim()).filter(t => t))}
+                                            placeholder="e.g. React, Node.js, PostgreSQL"
+                                        />
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Start Year</label>
+                                            <input
+                                                type="number"
+                                                value={(formData.start_year as number) || ''}
+                                                onChange={e => updateFormField('start_year', parseInt(e.target.value) || null)}
+                                                placeholder="2023"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>End Year</label>
+                                            <input
+                                                type="number"
+                                                value={(formData.end_year as number) || ''}
+                                                onChange={e => updateFormField('end_year', parseInt(e.target.value) || null)}
+                                                placeholder="2024"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Project URL</label>
+                                        <input
+                                            type="url"
+                                            value={(formData.url as string) || ''}
+                                            onChange={e => updateFormField('url', e.target.value)}
+                                            placeholder="https://github.com/user/project"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Skill Form */}
+                            {showAddModal === 'skill' && (
+                                <>
+                                    <div className="form-group">
+                                        <label>Skill Name *</label>
+                                        <input
+                                            type="text"
+                                            value={(formData.name as string) || ''}
+                                            onChange={e => updateFormField('name', e.target.value)}
+                                            placeholder="e.g. Python, React, AWS"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Category</label>
+                                        <select
+                                            value={(formData.category as string) || 'other'}
+                                            onChange={e => updateFormField('category', e.target.value)}
+                                        >
+                                            <option value="language">Programming Language</option>
+                                            <option value="framework">Framework</option>
+                                            <option value="database">Database</option>
+                                            <option value="cloud">Cloud</option>
+                                            <option value="tool">Tool</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn-cancel" onClick={closeModal}>Cancel</button>
+                            <button
+                                className="btn-save"
+                                onClick={handleFormSubmit}
+                                disabled={formSaving || (showAddModal !== 'skill' && !formData[showAddModal === 'education' ? 'school' : showAddModal === 'experience' ? 'company' : 'name'])}
+                            >
+                                {formSaving ? 'Saving...' : (editingItem ? 'Update' : 'Add')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

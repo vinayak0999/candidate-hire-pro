@@ -11,7 +11,11 @@ interface ProfileData {
     resume: File | null;
 }
 
-export default function ProfileWizard() {
+interface ProfileWizardProps {
+    onComplete?: () => void;
+}
+
+export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
     const [loading, setLoading] = useState(false);
     const [dragActive, setDragActive] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -69,37 +73,41 @@ export default function ProfileWizard() {
         return (
             profileData.fullName.trim() &&
             profileData.knowsDataAnnotation &&
-            profileData.whyAnnotation.trim().length >= 10
+            profileData.whyAnnotation.trim().length >= 10 &&
+            profileData.resume !== null  // Resume is REQUIRED
         );
     };
 
     const handleSubmit = async () => {
         if (!canSubmit()) return;
+        if (!profileData.resume) {
+            setError('Resume upload is required to continue.');
+            return;
+        }
 
         setLoading(true);
         setError(null);
 
         try {
-            // First, save the user's name and wizard answers
+            // First, upload the resume (REQUIRED - must complete before proceeding)
+            await profileApi.uploadResume(profileData.resume);
+
+            // Then save the user's name and wizard answers
             await profileApi.completeProfile(
                 profileData.fullName.trim(),
                 profileData.knowsDataAnnotation,
                 profileData.whyAnnotation.trim()
             );
 
-            // If resume is uploaded, start parsing in background (fire-and-forget)
-            // User won't wait for this - it processes silently
-            if (profileData.resume) {
-                // Don't await - let it run in background
-                profileApi.uploadResume(profileData.resume).catch(err => {
-                    console.warn('Background resume parsing:', err);
-                });
+            // Mark profile as complete in the app state
+            if (onComplete) {
+                onComplete();
             }
 
             // Reset loading before navigation
             setLoading(false);
 
-            // Navigate to dashboard immediately - don't wait for resume parsing
+            // Navigate to dashboard after resume is uploaded
             navigate('/dashboard');
         } catch (err: any) {
             console.error('Profile setup error:', err);
@@ -236,7 +244,7 @@ export default function ProfileWizard() {
                                 <label className="form-label">
                                     <span className="label-icon">📄</span>
                                     Upload Resume
-                                    <span className="optional">(Recommended)</span>
+                                    <span className="required">*</span>
                                 </label>
                                 <div
                                     className={`resume-dropzone ${dragActive ? 'drag-active' : ''} ${profileData.resume ? 'has-file' : ''}`}

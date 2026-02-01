@@ -111,7 +111,7 @@ export default function AdminDashboard() {
                 <StatCard
                     title="Total Candidates"
                     value={stats?.total_candidates.toLocaleString() || '0'}
-                    color="linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)"
+                    color="linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%)"
                     icon={
                         <svg viewBox="0 0 24 24" fill="white">
                             <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z" />
@@ -200,7 +200,7 @@ export default function AdminDashboard() {
                         </div>
                         <div className="quick-stat-item">
                             <div className="quick-stat-bar">
-                                <div className="bar-fill" style={{ width: `${stats?.text_annotation_pass_rate || 0}%`, background: '#6366f1' }}></div>
+                                <div className="bar-fill" style={{ width: `${stats?.text_annotation_pass_rate || 0}%`, background: '#1E40AF' }}></div>
                             </div>
                             <div className="quick-stat-info">
                                 <span>Text Annotation</span>

@@ -43,6 +43,7 @@ function App() {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+    const [profileComplete, setProfileComplete] = useState(false);
 
     useEffect(() => {
         checkAuth();
@@ -55,6 +56,14 @@ function App() {
                 const userData = await authApi.getMe();
                 setUser(userData);
                 setIsAuthenticated(true);
+
+                // Check if profile is complete (resume uploaded)
+                // Admin users bypass this check
+                if (userData.role?.toUpperCase() === 'ADMIN') {
+                    setProfileComplete(true);
+                } else {
+                    setProfileComplete(userData.profile_complete === true);
+                }
 
                 // Also check if this user should have admin access
                 const adminToken = localStorage.getItem('admin_token');
@@ -73,11 +82,13 @@ function App() {
                 localStorage.removeItem('admin_token');
                 setIsAuthenticated(false);
                 setIsAdminAuthenticated(false);
+                setProfileComplete(false);
             }
         } else {
             // No access token, clear admin token too
             localStorage.removeItem('admin_token');
             setIsAdminAuthenticated(false);
+            setProfileComplete(false);
         }
 
         setLoading(false);
@@ -129,7 +140,11 @@ function App() {
                 {/* Public Routes */}
                 <Route
                     path="/"
-                    element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login onLogin={handleLogin} />}
+                    element={
+                        isAuthenticated
+                            ? (profileComplete ? <Navigate to="/dashboard" /> : <Navigate to="/complete-profile" />)
+                            : <Login onLogin={handleLogin} />
+                    }
                 />
                 <Route
                     path="/signup"
@@ -149,11 +164,15 @@ function App() {
                 />
                 <Route
                     path="/complete-profile"
-                    element={<ProfileWizard />}
+                    element={
+                        isAuthenticated
+                            ? (profileComplete ? <Navigate to="/dashboard" /> : <ProfileWizard onComplete={() => { setProfileComplete(true); }} />)
+                            : <Navigate to="/" />
+                    }
                 />
 
-                {/* Protected Candidate Routes */}
-                {isAuthenticated ? (
+                {/* Protected Candidate Routes - Requires profile completion (resume upload) */}
+                {isAuthenticated && profileComplete ? (
                     <Route element={<Layout user={user} onLogout={handleLogout} />}>
                         <Route path="/dashboard" element={<Dashboard user={user} />} />
                         <Route path="/opportunities" element={<Jobs />} />
@@ -164,13 +183,31 @@ function App() {
                         <Route path="/ide" element={<div className="dashboard"><h1>Open IDE</h1><p>IDE integration coming soon...</p></div>} />
                         <Route path="/notifications" element={<Notifications />} />
                     </Route>
+                ) : isAuthenticated && !profileComplete ? (
+                    // Redirect to complete-profile if authenticated but profile incomplete
+                    <Route element={<Navigate to="/complete-profile" replace />}>
+                        <Route path="/dashboard" element={null} />
+                        <Route path="/opportunities" element={null} />
+                        <Route path="/courses" element={null} />
+                        <Route path="/assessments" element={null} />
+                        <Route path="/company-tests" element={null} />
+                        <Route path="/profile" element={null} />
+                        <Route path="/ide" element={null} />
+                        <Route path="/notifications" element={null} />
+                    </Route>
                 ) : null}
 
-                {/* Test Taking Routes */}
-                {isAuthenticated && (
+                {/* Test Taking Routes - Also requires profile completion */}
+                {isAuthenticated && profileComplete && (
                     <>
                         <Route path="/test/:testId" element={<TestTaking />} />
                         <Route path="/test-result/:attemptId" element={<TestResult />} />
+                    </>
+                )}
+                {isAuthenticated && !profileComplete && (
+                    <>
+                        <Route path="/test/:testId" element={<Navigate to="/complete-profile" replace />} />
+                        <Route path="/test-result/:attemptId" element={<Navigate to="/complete-profile" replace />} />
                     </>
                 )}
 

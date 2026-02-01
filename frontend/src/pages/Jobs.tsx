@@ -215,12 +215,10 @@ export default function Jobs() {
                             </div>
                         </div>
 
-                        <div className="tracker-item" style={{ marginTop: '20px', borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: '20px' }}>
-                            <div className="tracker-info" style={{ width: '100%' }}>
-                                <span className="t-label" style={{ marginBottom: '8px', display: 'block' }}>Recently Consumed</span>
-                                <span className="t-value" style={{ fontSize: '0.9rem', color: '#94A3B8', fontWeight: 500 }}>
-                                    No recent activity
-                                </span>
+                        <div className="tracker-item activity-section">
+                            <div className="tracker-info">
+                                <span className="t-label">Recent Activity</span>
+                                <span className="t-value">No recent activity</span>
                             </div>
                         </div>
                     </div>

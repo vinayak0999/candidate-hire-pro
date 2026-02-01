@@ -48,7 +48,7 @@ interface TestPreview {
 
 // Question Types Configuration
 const QUESTION_TYPES = [
-    { id: 'video', name: 'Video Analysis', icon: Video, color: '#8b5cf6', bg: '#ede9fe' },
+    { id: 'video', name: 'Video Analysis', icon: Video, color: '#1E40AF', bg: '#DBEAFE' },
     { id: 'image', name: 'Image Description', icon: Image, color: '#f59e0b', bg: '#fef3c7' },
     { id: 'reading', name: 'Reading Summary', icon: BookOpen, color: '#ec4899', bg: '#fce7f3' },
     { id: 'jumble', name: 'Jumble Sentences', icon: Shuffle, color: '#3b82f6', bg: '#dbeafe' },
@@ -440,6 +440,7 @@ export default function TestManagement() {
                 data.documents = questionForm.documents.filter(d => d.title.trim() && d.content.trim());
             }
 
+            console.log('Creating question with data:', JSON.stringify(data, null, 2));
             await adminApiService.createQuestion(data);
             const newQuestions = await adminApiService.getQuestions({ division_id: selectedDivision });
             setQuestions(newQuestions);
@@ -773,11 +774,11 @@ export default function TestManagement() {
                                         )}
                                         {selectedType === 'agent_analysis' && (
                                             <div className="form-section agent-analysis-form">
-                                                <label>HTML File (for In-Page Browser)</label>
+                                                <label>Task Instructions (HTML or PDF file)</label>
                                                 <div className="file-upload-zone">
                                                     <input
                                                         type="file"
-                                                        accept=".html,.htm"
+                                                        accept=".html,.htm,.pdf"
                                                         ref={htmlFileInputRef}
                                                         style={{ display: 'none' }}
                                                         onChange={async (e) => {
@@ -785,11 +786,15 @@ export default function TestManagement() {
                                                             if (file) {
                                                                 try {
                                                                     setUploading(true);
-                                                                    const result = await adminApiService.uploadFile(file, 'html');
+                                                                    // Determine file type for upload category
+                                                                    // Backend accepts: video, image, html, document
+                                                                    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+                                                                    const uploadType = isPdf ? 'document' : 'html';
+                                                                    const result = await adminApiService.uploadFile(file, uploadType);
                                                                     setQuestionForm(p => ({ ...p, html_content: result.url }));
                                                                 } catch (err) {
-                                                                    console.error('Failed to upload HTML file:', err);
-                                                                    alert('Failed to upload HTML file');
+                                                                    console.error('Failed to upload file:', err);
+                                                                    alert('Failed to upload file');
                                                                 } finally {
                                                                     setUploading(false);
                                                                 }
@@ -798,7 +803,9 @@ export default function TestManagement() {
                                                     />
                                                     {questionForm.html_content ? (
                                                         <div className="file-uploaded">
-                                                            <span className="file-name">✓ HTML File Uploaded</span>
+                                                            <span className="file-name">
+                                                                ✓ {questionForm.html_content.toLowerCase().endsWith('.pdf') ? 'PDF' : 'HTML'} File Uploaded
+                                                            </span>
                                                             <button
                                                                 type="button"
                                                                 className="remove-file-btn"
@@ -815,10 +822,13 @@ export default function TestManagement() {
                                                             disabled={uploading}
                                                         >
                                                             <Upload size={18} />
-                                                            {uploading ? 'Uploading...' : 'Upload HTML File (.html, .htm)'}
+                                                            {uploading ? 'Uploading...' : 'Upload File (.html, .htm, .pdf)'}
                                                         </button>
                                                     )}
                                                 </div>
+                                                <p style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
+                                                    HTML files render directly in browser. PDF files open in document viewer.
+                                                </p>
                                                 <div className="docs-info" style={{ marginTop: '16px', padding: '12px', background: '#e0f2fe', borderRadius: '8px', color: '#0369a1', fontSize: '14px' }}>
                                                     📄 Reference documents are managed at the Division level. Go to Divisions → Manage Docs.
                                                 </div>

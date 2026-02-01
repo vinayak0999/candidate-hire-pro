@@ -198,6 +198,8 @@ export const adminApiService = {
         media_url?: string;
         passage?: string;
         sentences?: string[];
+        html_content?: string;  // For Agent Analysis: HTML content or PDF/HTML URL
+        documents?: Array<{ id: string; title: string; content: string }>;  // For Agent Analysis
         marks?: number;
         difficulty?: string;
     }) => {
@@ -434,6 +436,111 @@ export const profileApi = {
         const response = await api.get('/profile/resume/download', {
             responseType: 'blob'
         });
+        return response.data;
+    },
+
+    // Education CRUD
+    addEducation: async (data: {
+        school: string;
+        degree?: string;
+        field_of_study?: string;
+        start_year?: number;
+        end_year?: number;
+        gpa?: string;
+    }) => {
+        const response = await api.post('/profile/me/education', data);
+        return response.data;
+    },
+
+    updateEducation: async (educationId: number, data: {
+        school?: string;
+        degree?: string;
+        field_of_study?: string;
+        start_year?: number;
+        end_year?: number;
+        gpa?: string;
+    }) => {
+        const response = await api.put(`/profile/me/education/${educationId}`, data);
+        return response.data;
+    },
+
+    deleteEducation: async (educationId: number) => {
+        const response = await api.delete(`/profile/me/education/${educationId}`);
+        return response.data;
+    },
+
+    // Work Experience CRUD
+    addExperience: async (data: {
+        company: string;
+        role: string;
+        city?: string;
+        country?: string;
+        start_date?: string;
+        end_date?: string;
+        is_current?: boolean;
+        description?: string;
+    }) => {
+        const response = await api.post('/profile/me/experience', data);
+        return response.data;
+    },
+
+    updateExperience: async (experienceId: number, data: {
+        company?: string;
+        role?: string;
+        city?: string;
+        country?: string;
+        start_date?: string;
+        end_date?: string;
+        is_current?: boolean;
+        description?: string;
+    }) => {
+        const response = await api.put(`/profile/me/experience/${experienceId}`, data);
+        return response.data;
+    },
+
+    deleteExperience: async (experienceId: number) => {
+        const response = await api.delete(`/profile/me/experience/${experienceId}`);
+        return response.data;
+    },
+
+    // Project CRUD
+    addProject: async (data: {
+        name: string;
+        description?: string;
+        technologies?: string[];
+        start_year?: number;
+        end_year?: number;
+        url?: string;
+    }) => {
+        const response = await api.post('/profile/me/projects', data);
+        return response.data;
+    },
+
+    updateProject: async (projectId: number, data: {
+        name?: string;
+        description?: string;
+        technologies?: string[];
+        start_year?: number;
+        end_year?: number;
+        url?: string;
+    }) => {
+        const response = await api.put(`/profile/me/projects/${projectId}`, data);
+        return response.data;
+    },
+
+    deleteProject: async (projectId: number) => {
+        const response = await api.delete(`/profile/me/projects/${projectId}`);
+        return response.data;
+    },
+
+    // Skills (Add/Remove)
+    addSkill: async (data: { name: string; category?: string }) => {
+        const response = await api.post('/profile/me/skills', data);
+        return response.data;
+    },
+
+    removeSkill: async (skillId: number) => {
+        const response = await api.delete(`/profile/me/skills/${skillId}`);
         return response.data;
     },
 };

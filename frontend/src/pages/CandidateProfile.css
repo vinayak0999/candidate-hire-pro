@@ -57,12 +57,12 @@
 }
 
 .upload-zone:hover {
-    border-color: #6366f1;
+    border-color: #1E40AF;
     background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
 }
 
 .upload-zone.drag-active {
-    border-color: #6366f1;
+    border-color: #1E40AF;
     background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
     transform: scale(1.01);
 }
@@ -102,9 +102,9 @@
 .current-file {
     margin-top: 12px;
     padding: 8px 16px;
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(30, 64, 175, 0.1);
     border-radius: 8px;
-    color: #6366f1;
+    color: #1E40AF;
     font-weight: 500;
     display: inline-block;
 }
@@ -125,13 +125,13 @@
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    background: linear-gradient(90deg, #1E40AF, #1E3A8A);
     border-radius: 4px;
     transition: width 0.3s ease;
 }
 
 .upload-progress p {
-    color: #6366f1;
+    color: #1E40AF;
     font-weight: 500;
 }
 
@@ -149,7 +149,7 @@
     width: 40px;
     height: 40px;
     border: 3px solid #e5e7eb;
-    border-top-color: #6366f1;
+    border-top-color: #1E40AF;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-bottom: 16px;
@@ -190,12 +190,12 @@
 }
 
 .tab:hover {
-    color: #6366f1;
+    color: #1E40AF;
 }
 
 .tab.active {
-    color: #6366f1;
-    border-bottom-color: #6366f1;
+    color: #1E40AF;
+    border-bottom-color: #1E40AF;
 }
 
 /* Tab Content */
@@ -292,7 +292,7 @@
 }
 
 .link-item:hover {
-    background: #6366f1;
+    background: #1E40AF;
     color: white;
 }
 
@@ -326,7 +326,7 @@
 
 .entry-card .degree,
 .entry-card .company {
-    color: #6366f1;
+    color: #1E40AF;
     font-weight: 500;
     margin-bottom: 4px;
 }
@@ -400,7 +400,7 @@
 
 .skill-tag.framework {
     background: linear-gradient(135deg, #f3e8ff, #e9d5ff);
-    color: #7c3aed;
+    color: #1E3A8A;
 }
 
 .skill-tag.database {

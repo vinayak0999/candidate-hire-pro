@@ -28,10 +28,57 @@ interface BrowserPanelProps {
     onToggleFullScreen: () => void;
 }
 
+// Helper to detect file type from URL
+const getFileType = (url: string): 'pdf' | 'html' | 'office' | 'other' => {
+    const lower = url.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'pdf';
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
+    if (/\.(docx?|xlsx?|pptx?)$/i.test(lower)) return 'office';
+    return 'other';
+};
+
 // 1. Optimized Browser Panel (Memoized)
 const BrowserPanel = memo(({ content, isUrl, title, isFullScreen, onToggleFullScreen }: BrowserPanelProps) => {
-    // Determine if we render an iframe with src (URL) or srcDoc (Raw HTML)
-    const renderIframe = () => {
+    // Determine file type and render appropriately
+    const fileType = isUrl ? getFileType(content) : 'other';
+
+    const renderContent = () => {
+        // PDF files - use embedded object tag (most reliable) with fallback
+        if (isUrl && fileType === 'pdf') {
+            return (
+                <object
+                    key="pdf-object"
+                    data={content}
+                    type="application/pdf"
+                    className="browser-iframe"
+                    title={title}
+                >
+                    {/* Fallback: Try iframe with PDF.js or Google Docs viewer */}
+                    <iframe
+                        key="pdf-fallback-frame"
+                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(content)}&embedded=true`}
+                        className="browser-iframe"
+                        title={title}
+                        loading="lazy"
+                    />
+                </object>
+            );
+        }
+
+        // Office files - use Microsoft Office viewer
+        if (isUrl && fileType === 'office') {
+            return (
+                <iframe
+                    key="office-frame"
+                    src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(content)}`}
+                    className="browser-iframe"
+                    title={title}
+                    loading="lazy"
+                />
+            );
+        }
+
+        // HTML URL or other URLs - render in iframe with src
         if (isUrl) {
             return (
                 <iframe
@@ -39,22 +86,21 @@ const BrowserPanel = memo(({ content, isUrl, title, isFullScreen, onToggleFullSc
                     src={content}
                     className="browser-iframe"
                     title={title}
-
-                    loading="lazy"
-                />
-            );
-        } else {
-            return (
-                <iframe
-                    key="html-frame"
-                    srcDoc={content}
-                    className="browser-iframe"
-                    title={title}
-
                     loading="lazy"
                 />
             );
         }
+
+        // Raw HTML content - render with srcDoc
+        return (
+            <iframe
+                key="html-frame"
+                srcDoc={content}
+                className="browser-iframe"
+                title={title}
+                loading="lazy"
+            />
+        );
     };
 
     return (
@@ -97,7 +143,7 @@ const BrowserPanel = memo(({ content, isUrl, title, isFullScreen, onToggleFullSc
             )}
 
             <div className="browser-content">
-                {renderIframe()}
+                {renderContent()}
             </div>
         </div>
     );

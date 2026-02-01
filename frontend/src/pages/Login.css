@@ -1,3 +1,7 @@
+/* ============================================
+   LOGIN PAGE - Clean & Premium
+   ============================================ */
+
 .login-page {
     min-height: 100vh;
     display: flex;
@@ -12,9 +16,11 @@
     width: 100%;
     max-width: 1000px;
     background: var(--color-bg-secondary);
-    border-radius: 20px;
+    border-radius: 24px;
     overflow: hidden;
-    box-shadow: 0 25px 80px -20px rgba(0, 0, 0, 0.15);
+    box-shadow:
+        0 25px 80px -20px rgba(0, 0, 0, 0.18),
+        0 0 40px rgba(0, 0, 0, 0.04);
 }
 
 /* Hero Section */
@@ -30,12 +36,22 @@
     height: 100%;
     object-fit: cover;
     object-position: center;
+    transition: transform 6s ease-out;
+}
+
+.login-card:hover .login-hero img {
+    transform: scale(1.03);
 }
 
 .hero-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.5) 100%);
+    background: linear-gradient(
+        180deg,
+        rgba(15, 23, 42, 0.1) 0%,
+        rgba(15, 23, 42, 0.3) 50%,
+        rgba(15, 23, 42, 0.7) 100%
+    );
     display: flex;
     align-items: flex-end;
     padding: 48px;
@@ -48,8 +64,9 @@
 .hero-title {
     font-size: 2rem;
     font-weight: 700;
-    margin-bottom: 8px;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    margin-bottom: 10px;
+    text-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+    letter-spacing: -0.01em;
 }
 
 .hero-subtitle {
@@ -97,7 +114,7 @@
 .login-form {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
     max-width: 360px;
     margin: 0 auto;
     width: 100%;
@@ -261,7 +278,8 @@
     display: flex;
     justify-content: center;
     gap: 6px;
-    margin-top: 16px;
+    margin-top: 4px;
+    margin-bottom: -8px;
 }
 
 .footer-text {
@@ -301,6 +319,51 @@
     color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 1px;
+}
+
+/* Or Divider */
+.login-or-divider {
+    display: flex;
+    align-items: center;
+    margin: 4px 0;
+}
+
+.login-or-divider::before,
+.login-or-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+}
+
+.login-or-divider span {
+    padding: 0 16px;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    text-transform: lowercase;
+}
+
+/* Google Login Button */
+.login-btn.google-btn {
+    background: var(--color-bg-secondary);
+    border: 2px solid var(--color-border);
+    color: var(--color-text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-top: -4px;
+}
+
+.login-btn.google-btn:hover {
+    background: var(--color-bg-primary);
+    border-color: var(--color-text-muted);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.login-btn.google-btn svg {
+    flex-shrink: 0;
+}
+
+.login-btn.google-btn:hover svg {
+    transform: none;
 }
 
 /* Error */

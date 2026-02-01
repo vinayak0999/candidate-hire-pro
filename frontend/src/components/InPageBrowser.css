@@ -217,6 +217,42 @@
     font-size: 13px;
 }
 
+/* PDF Fallback Styles */
+.pdf-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 40px;
+    text-align: center;
+    background: #f8fafc;
+    color: #64748b;
+}
+
+.pdf-fallback p {
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+.pdf-download-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: #2563eb;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.pdf-download-link:hover {
+    background: #1d4ed8;
+}
+
 /* Responsiveness */
 @media (max-width: 768px) {
     .in-page-browser {

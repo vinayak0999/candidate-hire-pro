@@ -1,13 +1,22 @@
 /* ============================================
-   DASHBOARD - Styled User Layout (Navy Blue)
+   DASHBOARD - Original Structure (Navy Blue)
    ============================================ */
 
 .dashboard {
     max-width: 1400px;
-    /* Wider for dashboard feel */
     margin: 0 auto;
     animation: fadeIn 0.4s ease-out;
     padding-bottom: 40px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* --- Header --- */
@@ -22,7 +31,6 @@
     font-size: 2.2rem;
     font-weight: 800;
     color: var(--color-primary);
-    /* Navy Blue */
     margin-bottom: 4px;
     letter-spacing: -0.02em;
 }
@@ -43,13 +51,14 @@
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
-/* --- USER CARD (User's Structure, Premium Style) --- */
+/* ============================================
+   USER CARD - Original Structure
+   ============================================ */
 .user-card {
     position: relative;
     overflow: hidden;
     margin-bottom: 40px;
     background: rgba(255, 255, 255, 0.75);
-    /* Transparent White Glass */
     backdrop-filter: blur(25px);
     -webkit-backdrop-filter: blur(25px);
     border-radius: 24px;
@@ -60,7 +69,7 @@
 }
 
 .user-card-banner {
-    height: 160px;
+    height: 140px;
     background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
     background-size: cover;
     background-position: center;
@@ -69,7 +78,6 @@
     position: relative;
 }
 
-/* Abstract shapes on banner */
 .user-card-banner::after {
     content: '';
     position: absolute;
@@ -83,48 +91,104 @@
 }
 
 .user-card-content {
-    padding: 0 48px 40px 48px;
+    padding: 0 40px 32px 40px;
     display: flex;
-    align-items: flex-end;
-    gap: 40px;
+    align-items: flex-start;
+    gap: 36px;
     position: relative;
 }
 
 .user-avatar-wrapper {
-    margin-top: -80px;
+    margin-top: -65px;
     position: relative;
     z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
 }
 
 .user-avatar {
-    width: 160px;
-    height: 160px;
+    width: 130px;
+    height: 130px;
     border-radius: 50%;
-    border: 6px solid white;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    border: 5px solid white;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
     object-fit: cover;
     background: white;
     position: relative;
     z-index: 1;
 }
 
+/* Social Links */
+.user-social-links {
+    display: flex;
+    gap: 8px;
+}
+
+.social-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.social-btn svg {
+    width: 17px;
+    height: 17px;
+}
+
+.social-btn.linkedin {
+    background: #EFF6FF;
+    color: #0077B5;
+}
+
+.social-btn.linkedin:hover {
+    background: #0077B5;
+    color: white;
+    transform: translateY(-2px);
+}
+
+.social-btn.github {
+    background: #F1F5F9;
+    color: #24292e;
+}
+
+.social-btn.github:hover {
+    background: #24292e;
+    color: white;
+    transform: translateY(-2px);
+}
+
+/* User Info */
 .user-info {
     flex: 1;
-    padding-bottom: 12px;
+    padding-top: 14px;
+    min-width: 0;
 }
 
 .user-name {
-    font-size: 2rem;
+    font-size: 1.85rem;
     font-weight: 800;
     color: var(--color-text-primary);
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     letter-spacing: -0.01em;
+}
+
+.user-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    margin-bottom: 4px;
 }
 
 .user-email {
     color: var(--color-text-secondary);
-    margin-bottom: 16px;
-    font-size: 1rem;
+    margin-bottom: 14px;
+    font-size: 0.95rem;
     font-weight: 500;
 }
 
@@ -132,30 +196,51 @@
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    margin-bottom: 14px;
 }
 
 .info-tag {
     background: rgba(241, 245, 249, 0.8);
-    /* Semi-transparent tag */
     color: #475569;
-    padding: 8px 16px;
-    border-radius: 12px;
+    padding: 7px 14px;
+    border-radius: 10px;
     font-size: 0.85rem;
     font-weight: 600;
     border: 1px solid rgba(226, 232, 240, 0.8);
 }
 
+/* Professional Summary */
+.user-summary {
+    background: linear-gradient(135deg, #FAFBFF 0%, #F0F4FF 100%);
+    padding: 14px 18px;
+    border-radius: 12px;
+    border-left: 4px solid #1E40AF;
+}
+
+.user-summary-text {
+    font-size: 0.9rem;
+    color: #334155;
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* Batch Badge */
 .user-batch-badge {
     background: rgba(239, 246, 255, 0.9);
     color: #1D4ED8;
-    padding: 10px 20px;
+    padding: 10px 18px;
     border-radius: 12px;
     font-weight: 700;
-    margin-bottom: 12px;
+    font-size: 0.9rem;
     border: 1px solid #DBEAFE;
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 14px;
 }
 
-/* --- TABS --- */
+/* ============================================
+   TABS
+   ============================================ */
 .dashboard-tabs-container {
     margin-bottom: 32px;
 }
@@ -195,7 +280,13 @@
     box-shadow: 0 4px 12px rgba(30, 64, 175, 0.3);
 }
 
-/* --- STATS GRID --- */
+/* ============================================
+   STATS GRID
+   ============================================ */
+.tab-content {
+    width: 100%;
+}
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -264,6 +355,40 @@
     font-weight: 800;
 }
 
+.stat-desc-muted {
+    font-size: 0.9rem;
+    color: #94A3B8;
+    font-weight: 500;
+}
+
+/* Skills Card */
+.stat-card.skills-card {
+    grid-column: 1 / -1;
+}
+
+.skills-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.skill-chip {
+    background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
+    color: #1E40AF;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 1px solid #BFDBFE;
+    transition: all 0.2s ease;
+}
+
+.skill-chip:hover {
+    background: #1E40AF;
+    color: white;
+    transform: translateY(-2px);
+}
+
 /* Chart Visuals */
 .solved-visual {
     display: flex;
@@ -275,6 +400,7 @@
     width: 120px;
     height: 120px;
     position: relative;
+    flex-shrink: 0;
 }
 
 .chart-svg {
@@ -284,7 +410,6 @@
 .chart-bg {
     fill: none;
     stroke: #E5E7EB;
-    /* Lighter chart bg */
     stroke-width: 10;
 }
 
@@ -306,7 +431,7 @@
 
 .chart-value {
     display: block;
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     font-weight: 800;
     color: #1E293B;
     line-height: 1;
@@ -323,7 +448,7 @@
 .solved-legend {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     font-size: 0.9rem;
     color: #475569;
 }
@@ -336,18 +461,21 @@
 }
 
 .dot {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 4px;
-    /* Soft square */
+    flex-shrink: 0;
 }
+
+.dot.easy { background: #22C55E; }
+.dot.medium { background: #F59E0B; }
+.dot.hard { background: #EF4444; }
 
 /* Badges */
 .badges-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    height: 100%;
+    gap: 16px;
 }
 
 .badge-stat {
@@ -380,7 +508,9 @@
     font-weight: 600;
 }
 
-/* --- JOBS SUMMARY --- */
+/* ============================================
+   JOBS SECTION
+   ============================================ */
 .jobs-section-wrapper {
     animation: fadeIn 0.3s;
 }
@@ -397,19 +527,15 @@
     background: rgba(255, 255, 255, 0.75);
     backdrop-filter: blur(25px);
     border-radius: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    border-radius: var(--glass-radius);
-    box-shadow: var(--glass-shadow-sm);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
     text-align: center;
-    border: var(--glass-border);
+    border: 1px solid rgba(255, 255, 255, 0.8);
 }
 
 .js-label {
     display: block;
     font-size: 0.9rem;
-    color: var(--text-color-secondary);
+    color: var(--color-text-secondary);
     font-weight: 600;
     margin-bottom: 8px;
     text-transform: uppercase;
@@ -419,23 +545,26 @@
 .js-val {
     font-size: 2rem;
     font-weight: 800;
-    color: var(--text-color-primary);
+    color: var(--color-text-primary);
+}
+
+.js-val.error {
+    color: #EF4444;
 }
 
 .jobs-grid-simple {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    /* Bigger cards */
     gap: 24px;
 }
 
 .job-card-simple {
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(25px);
     padding: 28px;
-    border-radius: var(--glass-radius);
-    box-shadow: var(--glass-shadow-sm);
-    border: var(--glass-border);
+    border-radius: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.8);
     transition: all 0.3s ease;
     display: flex;
     flex-direction: column;
@@ -444,9 +573,7 @@
 
 .job-card-simple:hover {
     transform: translateY(-8px);
-    box-shadow: var(--shadow-lg);
-    /* Deep soft shadow */
-    border-color: transparent;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
 }
 
 .jc-header {
@@ -458,21 +585,21 @@
 .jc-logo {
     width: 54px;
     height: 54px;
-    background: var(--bg-color-light);
-    color: var(--text-color-secondary);
-    border-radius: var(--border-radius-md);
+    background: #F1F5F9;
+    color: #1E40AF;
+    border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 700;
     font-size: 1.2rem;
-    box-shadow: var(--shadow-inset-sm);
+    flex-shrink: 0;
 }
 
 .jc-header h4 {
     font-size: 1.2rem;
     margin-bottom: 4px;
-    color: var(--text-color-primary);
+    color: var(--color-text-primary);
     font-weight: 700;
 }
 
@@ -497,7 +624,6 @@
 .highlight {
     font-weight: 700;
     color: #15803D;
-    /* Green for CTC */
 }
 
 .btn-apply-small {
@@ -520,26 +646,78 @@
     box-shadow: 0 4px 12px rgba(30, 64, 175, 0.2);
 }
 
+.loading-state {
+    text-align: center;
+    padding: 60px;
+    color: #64748B;
+    font-weight: 500;
+}
+
+.empty-jobs-state {
+    text-align: center;
+    padding: 60px 40px;
+    background: rgba(255, 255, 255, 0.75);
+    border-radius: 20px;
+}
+
+.empty-jobs-state .empty-icon {
+    font-size: 3rem;
+    display: block;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-jobs-state p {
+    color: #64748B;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 1200px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stat-card.skills-card {
+        grid-column: 1 / -1;
+    }
+}
+
 @media (max-width: 1024px) {
     .stats-grid {
         grid-template-columns: 1fr;
+        gap: 24px;
     }
 
     .jobs-stats-row {
         grid-template-columns: 1fr;
+        gap: 16px;
     }
 
     .user-card-content {
         flex-direction: column;
         align-items: center;
         text-align: center;
-        padding: 0 24px 32px 24px;
+        padding: 0 28px 28px 28px;
+    }
+
+    .user-avatar-wrapper {
+        margin-top: -58px;
+    }
+
+    .user-avatar {
+        width: 116px;
+        height: 116px;
     }
 
     .user-info {
         display: flex;
         flex-direction: column;
         align-items: center;
+        padding-top: 0;
     }
 
     .user-tags {
@@ -547,7 +725,122 @@
     }
 
     .user-batch-badge {
-        position: static;
-        margin-top: 16px;
+        margin-top: 14px;
+    }
+
+    .user-summary {
+        text-align: left;
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .dashboard-title {
+        font-size: 1.75rem;
+    }
+
+    .user-card-banner {
+        height: 110px;
+    }
+
+    .user-avatar-wrapper {
+        margin-top: -50px;
+    }
+
+    .user-avatar {
+        width: 100px;
+        height: 100px;
+    }
+
+    .user-name {
+        font-size: 1.5rem;
+    }
+
+    .user-card-content {
+        padding: 0 24px 24px 24px;
+        gap: 24px;
+    }
+
+    .info-tag {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+
+    .dashboard-tabs {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .dashboard-tab {
+        width: 100%;
+        text-align: center;
+    }
+
+    .stat-card {
+        padding: 24px;
+    }
+
+    .stat-main-value {
+        font-size: 2.8rem;
+    }
+
+    .solved-visual {
+        flex-direction: column;
+        gap: 24px;
+    }
+
+    .jobs-grid-simple {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .user-card-banner {
+        height: 90px;
+    }
+
+    .user-avatar-wrapper {
+        margin-top: -45px;
+    }
+
+    .user-avatar {
+        width: 90px;
+        height: 90px;
+        border-width: 4px;
+    }
+
+    .user-name {
+        font-size: 1.35rem;
+    }
+
+    .user-title {
+        font-size: 0.9rem;
+    }
+
+    .user-card-content {
+        padding: 0 18px 20px 18px;
+    }
+
+    .info-tag {
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .user-summary {
+        padding: 12px 14px;
+    }
+
+    .user-summary-text {
+        font-size: 0.85rem;
+    }
+
+    .stat-main-value {
+        font-size: 2.5rem;
     }
 }
