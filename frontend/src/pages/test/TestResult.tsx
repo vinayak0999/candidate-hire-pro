@@ -40,7 +40,9 @@ export default function TestResult() {
     const fetchResult = async () => {
         try {
             const token = localStorage.getItem('access_token');
-            const response = await fetch(`${API_BASE_URL}/tests/result/${attemptId}`, {
+
+            // Try regular test result first
+            let response = await fetch(`${API_BASE_URL}/tests/result/${attemptId}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -49,6 +51,47 @@ export default function TestResult() {
             if (response.ok) {
                 const data = await response.json();
                 setResult(data);
+                return;
+            }
+
+            // If not found, try standalone assessment result
+            response = await fetch(`${API_BASE_URL}/standalone-assessments/candidate/results/${attemptId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                // Flatten sections into answers array for consistent display
+                const flatAnswers: TestResult['answers'] = [];
+                if (data.sections) {
+                    for (const section of data.sections) {
+                        for (const q of section.questions || []) {
+                            flatAnswers.push({
+                                question_id: q.question_id,
+                                question_text: q.question_text,
+                                user_answer: q.user_answer,
+                                correct_answer: q.correct_answer,
+                                is_correct: q.is_correct,
+                                marks_obtained: q.marks_obtained,
+                                max_marks: q.max_marks,
+                            });
+                        }
+                    }
+                }
+                setResult({
+                    attempt_id: data.attempt_id,
+                    test_id: data.assessment_id,
+                    test_title: data.assessment_title,
+                    score: data.score,
+                    total_marks: data.total_marks,
+                    percentage: data.percentage,
+                    passed: data.passed,
+                    time_taken_seconds: data.time_taken_seconds,
+                    completed_at: data.completed_at,
+                    answers: flatAnswers,
+                });
             }
         } catch (error) {
             console.error('Failed to fetch result:', error);

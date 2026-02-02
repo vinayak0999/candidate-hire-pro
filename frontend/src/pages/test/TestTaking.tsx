@@ -12,17 +12,23 @@ const getMediaUrl = (url?: string) => {
     return `${API_HOST}${url}`;
 };
 
+interface OptionItem {
+    id: string;
+    text: string;
+}
+
 interface Question {
     id: number;
     question_type: string;
     question_text: string;
-    options?: string[];
+    options?: string[] | OptionItem[];  // Support both formats
     media_url?: string;
     passage?: string;
     sentences?: string[];
     html_content?: string;
     documents?: Array<{ id: string; title: string; content: string }>;
     marks: number;
+    _isStructuredOptions?: boolean;  // Flag to track if options have {id, text} format
 }
 
 interface TestSession {
@@ -38,8 +44,12 @@ interface TestSession {
 }
 
 export default function TestTaking() {
-    const { testId } = useParams<{ testId: string }>();
+    const { testId, assessmentId } = useParams<{ testId?: string; assessmentId?: string }>();
     const navigate = useNavigate();
+
+    // Determine if this is a standalone assessment
+    const isStandaloneAssessment = !!assessmentId;
+    const actualId = assessmentId || testId;
 
     const [session, setSession] = useState<TestSession | null>(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -115,6 +125,89 @@ export default function TestTaking() {
         }
     };
 
+    // CRITICAL: Back button blocking for standalone assessments
+    // If user presses back button -> auto-submit immediately
+    const isSubmittingRef = useRef(false);
+
+    useEffect(() => {
+        if (!isStandaloneAssessment || !session) return;
+
+        // Push a dummy state to enable popstate detection
+        window.history.pushState({ assessmentInProgress: true }, '', window.location.href);
+
+        const handlePopState = (_e: PopStateEvent) => {
+            // Prevent going back - push state again
+            window.history.pushState({ assessmentInProgress: true }, '', window.location.href);
+
+            // Auto-submit if not already submitting
+            if (!isSubmittingRef.current && !submitting) {
+                isSubmittingRef.current = true;
+                alert('Navigation detected! Your assessment will be auto-submitted with your current answers.');
+                handleSubmitTest();
+            }
+        };
+
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = 'Your assessment will be submitted if you leave. Are you sure?';
+            return e.returnValue;
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [isStandaloneAssessment, session, submitting]);
+
+    // CRITICAL: Assessment-specific auto-save to backend every 30 seconds
+    // Use ref to avoid re-creating interval on every answer change
+    const answersRef = useRef(answers);
+    answersRef.current = answers;
+
+    useEffect(() => {
+        if (!isStandaloneAssessment || !session) return;
+
+        const autoSaveToBackend = async () => {
+            const currentAnswers = answersRef.current;
+            if (Object.keys(currentAnswers).length === 0) return;
+
+            const token = localStorage.getItem('access_token');
+            if (!token) return;
+
+            try {
+                const assessmentAnswers = Object.entries(currentAnswers)
+                    .filter(([_, answerText]) => answerText && !answerText.startsWith('FILE:'))
+                    .map(([questionId, answerText]) => ({
+                        question_id: parseInt(questionId),
+                        selected_option: answerText,
+                        time_spent_seconds: 0
+                    }));
+
+                if (assessmentAnswers.length > 0) {
+                    await fetch(`${API_BASE_URL}/standalone-assessments/candidate/auto-save`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({
+                            attempt_id: session.attempt_id,
+                            answers: assessmentAnswers,
+                            tab_switches: antiCheat.tabSwitches
+                        })
+                    });
+                }
+            } catch (e) {
+                // Silent fail
+            }
+        };
+
+        // Only save every 30 seconds (not on every render)
+        const interval = setInterval(autoSaveToBackend, 30000);
+
+        return () => clearInterval(interval);
+    }, [isStandaloneAssessment, session]);
+
     // Check for failed submission and offer retry
     useEffect(() => {
         const failedAttempt = localStorage.getItem('failed_submission_attempt');
@@ -130,17 +223,17 @@ export default function TestTaking() {
                         method: 'POST',
                         headers: { 'Authorization': `Bearer ${token}` }
                     })
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.success) {
-                            localStorage.removeItem('failed_submission_attempt');
-                            alert(`Test submitted successfully!\nScore: ${data.score}/${data.total_marks}`);
-                            navigate(`/test-result/${failedAttempt}`);
-                        } else {
-                            alert('Retry failed. Please contact support.');
-                        }
-                    })
-                    .catch(() => alert('Retry failed. Please contact support.'));
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                localStorage.removeItem('failed_submission_attempt');
+                                alert(`Test submitted successfully!\nScore: ${data.score}/${data.total_marks}`);
+                                navigate(`/test-result/${failedAttempt}`);
+                            } else {
+                                alert('Retry failed. Please contact support.');
+                            }
+                        })
+                        .catch(() => alert('Retry failed. Please contact support.'));
                 }
             } else {
                 localStorage.removeItem('failed_submission_attempt');
@@ -155,19 +248,70 @@ export default function TestTaking() {
                 const token = localStorage.getItem('access_token');
                 if (!token) { navigate('/login'); return; }
 
-                const response = await fetch(`${API_BASE_URL}/tests/start`, {
+                // Use different endpoint for standalone assessments
+                const endpoint = isStandaloneAssessment
+                    ? `${API_BASE_URL}/standalone-assessments/candidate/start`
+                    : `${API_BASE_URL}/tests/start`;
+
+                const bodyData = isStandaloneAssessment
+                    ? { assessment_id: parseInt(actualId || '0') }
+                    : { test_id: parseInt(actualId || '0') };
+
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ test_id: parseInt(testId || '0') })
+                    body: JSON.stringify(bodyData)
                 });
 
                 if (response.ok) {
-                    const data = await response.json();
+                    let data = await response.json();
+
+                    // Flatten sections into questions for standalone assessments
+                    if (isStandaloneAssessment && data.sections) {
+                        const flatQuestions: Question[] = [];
+                        for (const section of data.sections) {
+                            for (const q of section.questions) {
+                                // Check if options have {id, text} structure
+                                const hasStructuredOptions = q.options && q.options.length > 0 &&
+                                    typeof q.options[0] === 'object' && q.options[0].id;
+
+                                flatQuestions.push({
+                                    id: q.id,
+                                    question_type: q.question_type || 'mcq',
+                                    question_text: q.question_text,
+                                    options: q.options,  // Keep original structure
+                                    marks: q.marks,
+                                    passage: section.passage || undefined,
+                                    _isStructuredOptions: hasStructuredOptions,
+                                });
+                            }
+                        }
+                        data = {
+                            attempt_id: data.attempt_id,
+                            test_id: data.assessment_id,
+                            test_title: data.assessment_title,
+                            duration_minutes: data.duration_minutes,
+                            total_questions: data.total_questions,
+                            questions: flatQuestions,
+                            started_at: data.started_at,
+                            enable_tab_switch_detection: data.enable_tab_switch_detection,
+                            max_tab_switches_allowed: data.max_tab_switches_allowed,
+                        };
+                    }
                     setSession(data);
                     timer.start();
+
+                    // For standalone assessments, request fullscreen mode
+                    if (isStandaloneAssessment) {
+                        try {
+                            await document.documentElement.requestFullscreen();
+                        } catch (e) {
+                            console.log('Fullscreen request failed:', e);
+                        }
+                    }
 
                     // Try to recover any server-saved answers
                     try {
@@ -211,8 +355,8 @@ export default function TestTaking() {
             }
         };
 
-        if (testId) startTest();
-    }, [testId]);
+        if (actualId) startTest();
+    }, [actualId, isStandaloneAssessment]);
 
     // Answer handling
     const handleSelectAnswer = useCallback((questionId: number, answer: string) => {
@@ -350,6 +494,75 @@ export default function TestTaking() {
                 }
             }
 
+            // STEP 2 & 3: Different logic for standalone assessments
+            if (isStandaloneAssessment) {
+                // For standalone assessments, submit all answers at once
+                setSubmitStatus('Submitting assessment...');
+                const assessmentAnswers = Object.entries(answers)
+                    .filter(([_, answerText]) => answerText && !answerText.startsWith('FILE:'))
+                    .map(([questionId, answerText]) => ({
+                        question_id: parseInt(questionId),
+                        selected_option: answerText,
+                        time_spent_seconds: 0
+                    }));
+
+                let completed = false;
+                let result = null;
+
+                for (let attempt = 0; attempt < 3 && !completed; attempt++) {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/standalone-assessments/candidate/submit`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                            body: JSON.stringify({
+                                attempt_id: session.attempt_id,
+                                answers: assessmentAnswers,
+                                tab_switches: antiCheat.tabSwitches
+                            })
+                        });
+
+                        if (response.ok) {
+                            result = await response.json();
+                            completed = true;
+                        } else {
+                            const errorText = await response.text();
+                            console.error(`Submit failed (attempt ${attempt + 1}):`, response.status, errorText);
+                            if (attempt < 2) {
+                                setSubmitStatus(`Retrying... (${attempt + 2}/3)`);
+                                await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`Submit error (attempt ${attempt + 1}):`, e);
+                        if (attempt < 2) {
+                            setSubmitStatus(`Retrying... (${attempt + 2}/3)`);
+                            await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+                        }
+                    }
+                }
+
+                if (completed && result) {
+                    localStorage.removeItem(`test_answers_${session.attempt_id}`);
+                    // Navigate to assessments page with result for standalone assessments
+                    navigate('/assessments', {
+                        state: {
+                            showResult: true,
+                            result: {
+                                ...result,
+                                attempt_id: session.attempt_id
+                            }
+                        }
+                    });
+                    return;
+                } else {
+                    alert('Failed to submit assessment. Please try again.');
+                    isSubmittedRef.current = false;
+                    setSubmitting(false);
+                    return;
+                }
+            }
+
+            // Regular test submission logic below
             // STEP 2: Bulk save ALL answers first (most reliable)
             setSubmitStatus('Saving all answers...');
             const allAnswers = Object.entries(answers)
@@ -494,7 +707,7 @@ export default function TestTaking() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify(allAnswers)
-                    }).catch(() => {}); // Silent fail
+                    }).catch(() => { }); // Silent fail
                 }
             } catch (e) {
                 // Silent fail - auto-save is best-effort
@@ -755,18 +968,25 @@ export default function TestTaking() {
                         {/* MCQ */}
                         {currentQuestion?.question_type === 'mcq' && currentQuestion.options && (
                             <div className="options">
-                                {currentQuestion.options.map((opt, i) => (
-                                    <label key={i} className={`option ${answers[currentQuestion.id] === opt ? 'selected' : ''}`}>
-                                        <input
-                                            type="radio"
-                                            name={`q-${currentQuestion.id}`}
-                                            checked={answers[currentQuestion.id] === opt}
-                                            onChange={() => handleSelectAnswer(currentQuestion.id, opt)}
-                                        />
-                                        <span className="opt-letter">{String.fromCharCode(65 + i)}</span>
-                                        <span className="opt-text">{opt}</span>
-                                    </label>
-                                ))}
+                                {currentQuestion.options.map((opt, i) => {
+                                    // Handle both structured {id, text} and plain string options
+                                    const isStructured = typeof opt === 'object' && opt !== null && 'id' in opt;
+                                    const optId = isStructured ? (opt as OptionItem).id : opt as string;
+                                    const optText = isStructured ? (opt as OptionItem).text : opt as string;
+
+                                    return (
+                                        <label key={i} className={`option ${answers[currentQuestion.id] === optId ? 'selected' : ''}`}>
+                                            <input
+                                                type="radio"
+                                                name={`q-${currentQuestion.id}`}
+                                                checked={answers[currentQuestion.id] === optId}
+                                                onChange={() => handleSelectAnswer(currentQuestion.id, optId)}
+                                            />
+                                            <span className="opt-letter">{isStructured ? (opt as OptionItem).id : String.fromCharCode(65 + i)}</span>
+                                            <span className="opt-text">{optText}</span>
+                                        </label>
+                                    );
+                                })}
                             </div>
                         )}
 

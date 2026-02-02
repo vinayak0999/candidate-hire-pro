@@ -34,6 +34,7 @@ import ReportsPage from './pages/admin/ReportsPage';
 import AdminAnnouncements from './pages/admin/AdminAnnouncements';
 import DivisionManagement from './pages/admin/DivisionManagement';
 import AdminResults from './pages/admin/AdminResults';
+import AssessmentManagement from './pages/admin/AssessmentManagement';
 
 
 import './index.css';
@@ -201,12 +202,14 @@ function App() {
                 {isAuthenticated && profileComplete && (
                     <>
                         <Route path="/test/:testId" element={<TestTaking />} />
+                        <Route path="/test/assessment/:assessmentId" element={<TestTaking />} />
                         <Route path="/test-result/:attemptId" element={<TestResult />} />
                     </>
                 )}
                 {isAuthenticated && !profileComplete && (
                     <>
                         <Route path="/test/:testId" element={<Navigate to="/complete-profile" replace />} />
+                        <Route path="/test/assessment/:assessmentId" element={<Navigate to="/complete-profile" replace />} />
                         <Route path="/test-result/:attemptId" element={<Navigate to="/complete-profile" replace />} />
                     </>
                 )}
@@ -230,6 +233,7 @@ function App() {
                         <Route path="announcements" element={<AdminAnnouncements />} />
                         <Route path="divisions" element={<DivisionManagement />} />
                         <Route path="results" element={<AdminResults />} />
+                        <Route path="assessments" element={<AssessmentManagement />} />
                     </Route>
                 ) : (
                     <Route path="/admin/*" element={<Navigate to="/admin/login" />} />
