@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from app.database import async_session_maker, init_db
 from app.models import User, Job, Course, CourseEnrollment, Assessment, Badge, JobApplication
 from app.models.job import OfferType, JobStatus
+from app.models.user import UserRole
 from app.services.auth import get_password_hash
 
 
@@ -24,7 +25,7 @@ async def seed_database():
             branch="Administration",
             batch="2024",
             college="Autonex",
-            role="admin",
+            role=UserRole.ADMIN,
             neo_pat_score=0,
             solved_easy=0,
             solved_medium=0,

@@ -22,9 +22,12 @@ from ..services.resume_parser import (
 from ..services.vector_search import vector_search_service
 from ..schemas.profile import (
     ProfileResponse, ProfileUpdate,
-    EducationCreate, WorkExperienceCreate, ProjectCreate,
+    EducationCreate, EducationUpdate,
+    WorkExperienceCreate, WorkExperienceUpdate,
+    ProjectCreate, ProjectUpdate,
     CertificationCreate, PublicationCreate, AwardCreate, UserLanguageCreate,
-    SkillResponse
+    SkillResponse, SkillAdd,
+    EducationResponse, WorkExperienceResponse, ProjectResponse
 )
 
 router = APIRouter(prefix="/api/profile", tags=["Profile"])
@@ -223,8 +226,12 @@ async def upload_resume(
     profile.resume_url = _safe_truncate(resume_url, 500)
     profile.resume_parsed_at = None  # Will be set after parsing completes
 
+    # Mark user's profile as complete (resume requirement fulfilled)
+    current_user.profile_complete = True
+
     await db.commit()
     print(f"✅ Resume URL saved to profile for user {current_user.id}")
+    print(f"✅ Profile marked as complete for user {current_user.id}")
 
     # ===== STEP 4: CREATE PARSING JOB AND FIRE BACKGROUND TASK =====
     job_id = 0
@@ -1043,3 +1050,365 @@ async def remove_language(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Language not found"
     )
+
+
+# ============================================================================
+# Education CRUD
+# ============================================================================
+
+@router.post("/me/education", response_model=ProfileResponse)
+async def add_education(
+    edu_data: EducationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a new education entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    profile.education.append(Education(
+        school=edu_data.school,
+        degree=edu_data.degree,
+        field_of_study=edu_data.field_of_study,
+        start_year=edu_data.start_year,
+        end_year=edu_data.end_year,
+        gpa=edu_data.gpa
+    ))
+    
+    await db.commit()
+    profile = await get_profile_with_relations(db, current_user.id)
+    return profile
+
+
+@router.put("/me/education/{education_id}", response_model=ProfileResponse)
+async def update_education(
+    education_id: int,
+    edu_data: EducationUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update an education entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    # Find the education entry
+    education = None
+    for edu in profile.education:
+        if edu.id == education_id:
+            education = edu
+            break
+    
+    if not education:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Education entry not found"
+        )
+    
+    # Update fields that were provided
+    update_dict = edu_data.model_dump(exclude_unset=True)
+    for field, value in update_dict.items():
+        setattr(education, field, value)
+    
+    await db.commit()
+    profile = await get_profile_with_relations(db, current_user.id)
+    return profile
+
+
+@router.delete("/me/education/{education_id}")
+async def delete_education(
+    education_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete an education entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    for edu in profile.education:
+        if edu.id == education_id:
+            profile.education.remove(edu)
+            await db.commit()
+            return {"message": "Education entry deleted"}
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Education entry not found"
+    )
+
+
+# ============================================================================
+# Work Experience CRUD
+# ============================================================================
+
+@router.post("/me/experience", response_model=ProfileResponse)
+async def add_experience(
+    exp_data: WorkExperienceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a new work experience entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    profile.work_experience.append(WorkExperience(
+        company=exp_data.company,
+        role=exp_data.role,
+        city=exp_data.city,
+        country=exp_data.country,
+        start_date=exp_data.start_date,
+        end_date=exp_data.end_date,
+        is_current=exp_data.is_current,
+        description=exp_data.description
+    ))
+    
+    await db.commit()
+    profile = await get_profile_with_relations(db, current_user.id)
+    return profile
+
+
+@router.put("/me/experience/{experience_id}", response_model=ProfileResponse)
+async def update_experience(
+    experience_id: int,
+    exp_data: WorkExperienceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a work experience entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    # Find the experience entry
+    experience = None
+    for exp in profile.work_experience:
+        if exp.id == experience_id:
+            experience = exp
+            break
+    
+    if not experience:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Work experience entry not found"
+        )
+    
+    # Update fields that were provided
+    update_dict = exp_data.model_dump(exclude_unset=True)
+    for field, value in update_dict.items():
+        setattr(experience, field, value)
+    
+    await db.commit()
+    profile = await get_profile_with_relations(db, current_user.id)
+    return profile
+
+
+@router.delete("/me/experience/{experience_id}")
+async def delete_experience(
+    experience_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a work experience entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    for exp in profile.work_experience:
+        if exp.id == experience_id:
+            profile.work_experience.remove(exp)
+            await db.commit()
+            return {"message": "Work experience entry deleted"}
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Work experience entry not found"
+    )
+
+
+# ============================================================================
+# Project CRUD
+# ============================================================================
+
+@router.post("/me/projects", response_model=ProfileResponse)
+async def add_project(
+    proj_data: ProjectCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a new project entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    profile.projects.append(Project(
+        name=proj_data.name,
+        description=proj_data.description,
+        technologies=proj_data.technologies,
+        start_year=proj_data.start_year,
+        end_year=proj_data.end_year,
+        url=proj_data.url
+    ))
+    
+    await db.commit()
+    profile = await get_profile_with_relations(db, current_user.id)
+    return profile
+
+
+@router.put("/me/projects/{project_id}", response_model=ProfileResponse)
+async def update_project(
+    project_id: int,
+    proj_data: ProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a project entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    # Find the project
+    project = None
+    for proj in profile.projects:
+        if proj.id == project_id:
+            project = proj
+            break
+    
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+    
+    # Update fields that were provided
+    update_dict = proj_data.model_dump(exclude_unset=True)
+    for field, value in update_dict.items():
+        setattr(project, field, value)
+    
+    await db.commit()
+    profile = await get_profile_with_relations(db, current_user.id)
+    return profile
+
+
+@router.delete("/me/projects/{project_id}")
+async def delete_project(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a project entry."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    for proj in profile.projects:
+        if proj.id == project_id:
+            profile.projects.remove(proj)
+            await db.commit()
+            return {"message": "Project deleted"}
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Project not found"
+    )
+
+
+# ============================================================================
+# Skills (Add/Remove only - skills are shared entities)
+# ============================================================================
+
+@router.post("/me/skills", response_model=ProfileResponse)
+async def add_skill(
+    skill_data: SkillAdd,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a skill to user's profile."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    # Get or create the skill
+    skill = await get_or_create_skill(db, skill_data.name, skill_data.category or "other")
+    
+    # Check if skill already exists in profile
+    if skill in profile.skills:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Skill already added to profile"
+        )
+    
+    profile.skills.append(skill)
+    await db.commit()
+    profile = await get_profile_with_relations(db, current_user.id)
+    return profile
+
+
+@router.delete("/me/skills/{skill_id}")
+async def remove_skill(
+    skill_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a skill from user's profile."""
+    profile = await get_profile_with_relations(db, current_user.id)
+    
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found"
+        )
+    
+    for skill in profile.skills:
+        if skill.id == skill_id:
+            profile.skills.remove(skill)
+            await db.commit()
+            return {"message": "Skill removed from profile"}
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Skill not found in profile"
+    )
+

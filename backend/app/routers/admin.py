@@ -8,9 +8,11 @@ from sqlalchemy import select, func, and_
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
 import os
+import io
 import uuid
 import aiofiles
 import json
+import tempfile
 
 from ..database import get_db
 from ..models.user import User, UserRole
@@ -223,36 +225,6 @@ async def update_division_documents(
     return {"message": "Documents updated", "documents": documents}
 
 
-@router.post("/upload")
-async def upload_file(
-    file: UploadFile = File(...),
-    file_type: str = "document",
-    admin: User = Depends(require_admin)
-):
-    """
-    Upload a file to Supabase Storage.
-    """
-    from ..services.supabase_upload import upload_to_supabase
-    import traceback
-    
-    filename = file.filename or f"upload_{uuid.uuid4().hex}"
-    safe_filename = filename.replace(" ", "_")
-    file_path = f"{file_type}/{uuid.uuid4().hex}_{safe_filename}"
-    
-    try:
-        url = await upload_to_supabase(
-            file=file,
-            bucket="division-docs",
-            file_path=file_path,
-            content_type=file.content_type
-        )
-        return {"url": url}
-    except Exception as e:
-        print(f"Upload error: {e}")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
-
 # ========== Question CRUD ==========
 
 @router.get("/questions", response_model=List[QuestionResponse])
@@ -287,6 +259,7 @@ async def create_question(
     admin: User = Depends(require_admin)
 ):
     """Create a new question"""
+    print(f"[CreateQuestion] type={data.question_type}, html_content={data.html_content[:100] if data.html_content else None}")
     question = Question(
         question_type=data.question_type,
         question_text=data.question_text,
@@ -339,17 +312,21 @@ async def delete_question(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
-    """Soft delete a question"""
+    """Soft delete a question (sets is_active=False)"""
+    print(f"[DeleteQuestion] Attempting to delete question_id={question_id}")
     result = await db.execute(select(Question).where(Question.id == question_id))
     question = result.scalar_one_or_none()
-    
+
     if not question:
+        print(f"[DeleteQuestion] Question {question_id} not found")
         raise HTTPException(status_code=404, detail="Question not found")
-    
+
+    print(f"[DeleteQuestion] Found question: id={question.id}, is_active={question.is_active}")
     question.is_active = False
     await db.commit()
-    
-    return {"message": "Question deleted"}
+    print(f"[DeleteQuestion] Successfully soft-deleted question {question_id}")
+
+    return {"message": "Question deleted", "question_id": question_id}
 
 
 # ========== Test Management ==========
@@ -836,12 +813,23 @@ async def get_test_results(
     admin: User = Depends(require_admin),
     job_id: Optional[int] = None
 ):
-    """Get all completed test attempts with user, job, and score info"""
+    """Get all completed test attempts with user, job, and score info (excludes standalone assessments)"""
     
-    # Get completed attempts
+    # Get all standalone assessment IDs to exclude them
+    standalone_result = await db.execute(
+        select(Test.id).where(Test.assessment_type == "standalone_assessment")
+    )
+    standalone_ids = [row[0] for row in standalone_result.all()]
+    
+    # Get completed attempts, excluding standalone assessments
     query = select(TestAttempt).where(
         TestAttempt.status == "completed"
-    ).order_by(TestAttempt.completed_at.desc())
+    )
+    
+    if standalone_ids:
+        query = query.where(TestAttempt.test_id.notin_(standalone_ids))
+    
+    query = query.order_by(TestAttempt.completed_at.desc())
     
     result = await db.execute(query)
     attempts = result.scalars().all()
@@ -961,6 +949,148 @@ async def download_answer_file(
     )
 
 
+@router.get("/test-results/export/excel")
+async def export_test_results_excel(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+    job_id: Optional[int] = None
+):
+    """Export all test results to Excel file for download"""
+    from fastapi.responses import StreamingResponse
+    import io
+    
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="openpyxl not installed. Run: pip install openpyxl"
+        )
+    
+    # Get all test results using same logic as get_test_results
+    standalone_result = await db.execute(
+        select(Test.id).where(Test.assessment_type == "standalone_assessment")
+    )
+    standalone_ids = [row[0] for row in standalone_result.all()]
+    
+    query = select(TestAttempt).where(TestAttempt.status == "completed")
+    if standalone_ids:
+        query = query.where(TestAttempt.test_id.notin_(standalone_ids))
+    query = query.order_by(TestAttempt.completed_at.desc())
+    
+    result = await db.execute(query)
+    attempts = result.scalars().all()
+    
+    if not attempts:
+        raise HTTPException(status_code=404, detail="No test results found")
+    
+    # Get user, test, and job data
+    user_ids = list(set(a.user_id for a in attempts))
+    users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
+    users = {u.id: u for u in users_result.scalars().all()}
+    
+    test_ids = list(set(a.test_id for a in attempts))
+    tests_result = await db.execute(select(Test).where(Test.id.in_(test_ids)))
+    tests = {t.id: t for t in tests_result.scalars().all()}
+    
+    from ..models.job import Job
+    jobs_result = await db.execute(select(Job).where(Job.test_id.in_(test_ids)))
+    jobs_by_test = {j.test_id: j for j in jobs_result.scalars().all()}
+    
+    # Filter by job if specified
+    if job_id:
+        job_test_ids = [tid for tid, j in jobs_by_test.items() if j.id == job_id]
+        attempts = [a for a in attempts if a.test_id in job_test_ids]
+        if not attempts:
+            raise HTTPException(status_code=404, detail="No results found for this job")
+    
+    # Create Excel workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Test Results"
+    
+    # Header styling
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Headers
+    headers = [
+        "S.No", "Candidate Name", "Email", "Job/Role", "Company",
+        "Test Name", "Score", "Max Score", "Percentage", "Status",
+        "Tab Switches", "Completed At"
+    ]
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+    
+    # Data rows
+    for row_num, attempt in enumerate(attempts, 2):
+        user = users.get(attempt.user_id)
+        test = tests.get(attempt.test_id)
+        job = jobs_by_test.get(attempt.test_id)
+        
+        status = "Passed" if (attempt.percentage or 0) >= 50 else "Failed"
+        completed = attempt.completed_at.strftime("%Y-%m-%d %H:%M") if attempt.completed_at else "N/A"
+        
+        row_data = [
+            row_num - 1,
+            user.name if user else "Unknown",
+            user.email if user else "",
+            job.role if job else "N/A",
+            job.company_name if job else "N/A",
+            test.title if test else f"Test #{attempt.test_id}",
+            attempt.score or 0,
+            attempt.total_marks or 100,
+            round(attempt.percentage or 0, 1),
+            status,
+            attempt.tab_switches or 0,
+            completed
+        ]
+        
+        for col, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col, value=value)
+            cell.border = thin_border
+            if col == 10:  # Status column
+                if value == "Passed":
+                    cell.fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
+                else:
+                    cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    
+    # Adjust column widths
+    column_widths = [8, 25, 30, 25, 20, 30, 10, 12, 12, 10, 14, 20]
+    for i, width in enumerate(column_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
+    
+    # Save to bytes buffer
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    # Generate filename
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_suffix = f"_job{job_id}" if job_id else "_all"
+    filename = f"test_results{job_suffix}_{timestamp}.xlsx"
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 # ========== File Upload ==========
 
 # Ensure uploads directory exists (fallback for local storage)
@@ -983,18 +1113,11 @@ async def upload_file(
 ):
     """
     Upload a video, image, HTML, or document file.
-    Uses Cloudinary for scalable CDN delivery (handles 10k+ concurrent users).
-    Falls back to local storage if Cloudinary not configured.
-    
-    Best practices for scale:
-    - CDN delivery for global performance
-    - Auto-optimization for images/videos
-    - Chunked uploads for large files
+    Uses Supabase for documents/HTML, Cloudinary for video/images.
+    Falls back to local storage if cloud services fail.
     """
-    from ..services.cloudinary_service import (
-        upload_video, upload_image, is_cloudinary_available
-    )
-    
+    import traceback
+
     # Debug logging
     filename = file.filename or ""
     content_type = file.content_type or ""
@@ -1059,9 +1182,6 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="file_type must be 'video', 'image', 'html', or 'document'")
     
     # Read file content with size check -> Stream to temp file
-    import aiofiles
-    import os
-    
     unique_name = f"{file_type}_{uuid.uuid4().hex}{ext}"
     file_path = os.path.join(UPLOAD_DIR, unique_name)
     file_size = 0
@@ -1091,62 +1211,79 @@ async def upload_file(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to save file: {str(e)}")
     
-    # Try Cloudinary first (recommended for production scale)
-    if is_cloudinary_available():
+    # For HTML and Documents, use Supabase (more reliable for these file types)
+    if file_type in ["html", "document"]:
         try:
-            # For cloudinary, we can upload from the file path
-            # (Assuming Cloudinary SDK supports path, or we read stream from path)
-            # Actually, standard cloudinary upload() usually takes file path too
-            # check service impl... assuming it takes file-like object
-            import aiofiles
-            
-            # Re-open safely for reading
+            from ..services.supabase_upload import upload_bytes_to_supabase
+
             async with aiofiles.open(file_path, 'rb') as f:
-                content = await f.read() # Still loading to MEM for cloudinary? 
-                # Ideally cloudinary_service should take path or stream.
-                # For now given existing service uses BytesIO, we might still hit limit here if strict.
-                # BUT, usually admin uploads are rarer. Best fix: refactor service later.
-                # For NOW, at least local save is safe.
-                import io
+                content = await f.read()
+
+            # Determine content type
+            if file_type == "html":
+                content_type_upload = "text/html"
+                folder = "test-media/html"
+            else:
+                content_type_upload = "application/pdf" if ext == ".pdf" else "application/octet-stream"
+                folder = "test-media/documents"
+
+            supabase_path = f"{folder}/{unique_name}"
+            print(f"[Upload] Attempting Supabase upload: bucket=division-docs, path={supabase_path}")
+
+            public_url = await upload_bytes_to_supabase(
+                content=content,
+                bucket="division-docs",
+                file_path=supabase_path,
+                content_type=content_type_upload
+            )
+
+            # Clean up local file
+            try:
+                os.remove(file_path)
+            except:
+                pass
+
+            print(f"[Upload Success] Supabase: {public_url}")
+            return {
+                "success": True,
+                "url": public_url,  # Frontend expects 'url'
+                "file_url": public_url,
+                "file_name": unique_name,
+                "file_type": file_type,
+                "size": file_size,
+                "storage": "supabase"
+            }
+        except Exception as e:
+            import traceback
+            print(f"[Upload Error] Supabase failed: {e}")
+            print(f"[Upload Error] Traceback: {traceback.format_exc()}")
+            # Fall through to local storage - don't raise, use local fallback
+
+    # For video/image, try Cloudinary
+    from ..services.cloudinary_service import (
+        upload_video, upload_image, is_cloudinary_available
+    )
+
+    if file_type in ["video", "image"] and is_cloudinary_available():
+        try:
+            async with aiofiles.open(file_path, 'rb') as f:
+                content = await f.read()
                 file_stream = io.BytesIO(content)
 
             if file_type == "video":
-                from ..services.cloudinary_service import upload_video
-                result = await upload_video(
-                    file_stream, 
-                    folder="hiring-pro/test-media/videos"
-                )
-            elif file_type == "image":
-                result = await upload_image(
-                    file_stream, 
-                    folder="hiring-pro/test-media/images"
-                )
-            elif file_type == "html":
-                from ..services.cloudinary_service import upload_document
-                result = await upload_document(
-                    file_stream, 
-                    folder="hiring-pro/test-media/html",
-                    filename=filename
-                )
-            elif file_type == "document":
-                from ..services.cloudinary_service import upload_document
-                result = await upload_document(
-                    file_stream, 
-                    folder="hiring-pro/test-media/documents",
-                    filename=filename
-                )
+                result = await upload_video(file_stream, folder="hiring-pro/test-media/videos")
             else:
-                result = None
-            
-            # If successful, remove local temp file
+                result = await upload_image(file_stream, folder="hiring-pro/test-media/images")
+
             if result:
                 try:
                     os.remove(file_path)
                 except:
                     pass
-                    
+
                 return {
                     "success": True,
+                    "url": result["url"],
                     "file_url": result["url"],
                     "public_id": result.get("public_id"),
                     "file_type": file_type,
@@ -1154,19 +1291,15 @@ async def upload_file(
                     "storage": "cloudinary"
                 }
         except Exception as e:
-            # Log but fall through to local storage (file is already there)
             print(f"Cloudinary upload failed, falling back to local: {e}")
-            # File is already at file_path, so we just use that.
-    
-    # Fallback: Local storage (already saved at file_path)
-    # Just need to confirm path is right
-    
-    # (Existing logic saved to file_path already)
-    
+
+    # Fallback: Local storage (file is already saved at file_path)
     file_url = f"/uploads/{unique_name}"
-    
+    print(f"[Upload Success] Local: {file_url}")
+
     return {
         "success": True,
+        "url": file_url,  # Frontend expects 'url'
         "file_url": file_url,
         "file_name": unique_name,
         "file_type": file_type,
@@ -1192,9 +1325,6 @@ async def import_questions_from_excel(
         raise HTTPException(status_code=400, detail="No file provided")
     
     # Stream file content to temp file first to avoid OOM
-    import tempfile
-    import os
-    
     fd, temp_path = tempfile.mkstemp()
     try:
         async with aiofiles.open(temp_path, 'wb') as f:

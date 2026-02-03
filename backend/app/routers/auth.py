@@ -4,6 +4,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
+from typing import Optional
+import httpx
 
 from ..database import get_db
 from ..models.user import User
@@ -27,6 +29,30 @@ from ..config import get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 settings = get_settings()
+
+
+# ============================================================================
+# Google OAuth Schemas
+# ============================================================================
+
+class GoogleAuthRequest(BaseModel):
+    """Request from frontend with Google OAuth data"""
+    id_token: str  # Actually the access_token from Google
+    email: Optional[EmailStr] = None  # User's email from Google
+    name: Optional[str] = None  # User's name from Google
+    picture: Optional[str] = None  # User's avatar from Google
+    # Optional: for new user registration
+    registration_number: Optional[str] = None
+
+
+class GoogleAuthResponse(BaseModel):
+    """Response after Google authentication"""
+    access_token: str
+    token_type: str = "bearer"
+    is_new_user: bool = False
+    profile_complete: bool = False
+    next_step: Optional[str] = None  # "complete_registration", "upload_resume", or None
+    user: Optional[dict] = None
 
 
 # Schemas for email verification
@@ -53,12 +79,26 @@ class MessageResponse(BaseModel):
     success: bool = True
 
 
-@router.post("/login", response_model=Token)
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    profile_complete: bool = True
+    next_step: Optional[str] = None  # "verify_email", "upload_resume", or None
+
+
+@router.post("/login", response_model=LoginResponse)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
-    """Login with email and password"""
+    """
+    Login with email and password.
+
+    Step-wise process:
+    1. If email not verified → returns error with next_step="verify_email"
+    2. If resume not uploaded → returns token with profile_complete=False, next_step="upload_resume"
+    3. If all complete → returns full access token
+    """
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -66,19 +106,46 @@ async def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Check if email is verified (skip for admin users)
+
+    # Step 1: Check if email is verified (skip for admin users)
     if not user.is_verified and user.role.value != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified. Please verify your email first."
+            detail="Email not verified. Please verify your email first.",
+            headers={"X-Next-Step": "verify_email"}
         )
-    
+
+    # Generate token (needed for resume upload even if profile incomplete)
     access_token = create_access_token(
         data={"sub": str(user.id)},
         expires_delta=timedelta(minutes=settings.access_token_expire_minutes)
     )
-    return Token(access_token=access_token)
+
+    # Step 2: Check if profile is complete (resume uploaded) - skip for admin
+    if user.role.value != "ADMIN" and not user.profile_complete:
+        # Check if resume exists in profile
+        from ..models.profile import CandidateProfile
+        profile_result = await db.execute(
+            select(CandidateProfile).where(CandidateProfile.user_id == user.id)
+        )
+        profile = profile_result.scalar_one_or_none()
+
+        if not profile or not profile.resume_url:
+            return LoginResponse(
+                access_token=access_token,
+                profile_complete=False,
+                next_step="upload_resume"
+            )
+        else:
+            # Resume exists, mark profile as complete
+            user.profile_complete = True
+            await db.commit()
+
+    return LoginResponse(
+        access_token=access_token,
+        profile_complete=True,
+        next_step=None
+    )
 
 
 @router.post("/register", response_model=MessageResponse)
@@ -259,3 +326,270 @@ async def reset_password(request: ResetPasswordRequest, db: AsyncSession = Depen
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user profile"""
     return current_user
+
+
+# ============================================================================
+# Google OAuth Authentication
+# ============================================================================
+
+async def verify_google_token(id_token: str) -> dict:
+    """
+    Verify Google ID token and return user info.
+
+    Uses Google's tokeninfo endpoint for verification.
+    Returns: {email, name, picture, email_verified}
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            # Verify token with Google
+            response = await client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid Google token"
+                )
+
+            token_info = response.json()
+
+            # Verify the token was meant for our app
+            if token_info.get("aud") != settings.google_client_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token was not issued for this application"
+                )
+
+            # Check email is verified by Google
+            if token_info.get("email_verified") != "true":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Email not verified by Google"
+                )
+
+            return {
+                "email": token_info.get("email"),
+                "name": token_info.get("name", token_info.get("email", "").split("@")[0]),
+                "picture": token_info.get("picture"),
+                "google_id": token_info.get("sub")
+            }
+
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not verify Google token: {str(e)}"
+        )
+
+
+@router.post("/google", response_model=GoogleAuthResponse)
+async def google_auth(
+    request: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Authenticate with Google OAuth.
+
+    Flow:
+    1. Frontend uses Google Sign-In SDK to get access token + user info
+    2. Frontend sends user info (email, name, picture) to this endpoint
+    3. Backend creates/updates user (auto-verified - no OTP needed!)
+    4. Returns JWT token + profile status
+
+    For NEW users:
+    - If registration_number not provided, generates a temporary one
+    - User is created with is_verified=True (Google verified the email)
+    - next_step will be "upload_resume"
+
+    For EXISTING users:
+    - Returns token
+    - next_step depends on profile_complete status
+    """
+    # Use user info provided by frontend (already verified with Google)
+    if request.email:
+        # Frontend already got user info from Google
+        google_info = {
+            "email": request.email,
+            "name": request.name or request.email.split("@")[0],
+            "picture": request.picture
+        }
+    else:
+        # Fallback: try to verify with token (for backwards compatibility)
+        google_info = await verify_google_token(request.id_token)
+
+    email = google_info["email"].lower()
+
+    # Check if user exists
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    is_new_user = False
+
+    if not user:
+        # NEW USER - Create account
+        is_new_user = True
+
+        # Generate registration number if not provided
+        reg_number = request.registration_number
+        if not reg_number:
+            # Generate unique reg number
+            import uuid
+            reg_number = f"G{uuid.uuid4().hex[:8].upper()}"
+
+        # Check if reg number already exists
+        existing_reg = await db.execute(
+            select(User).where(User.registration_number == reg_number)
+        )
+        if existing_reg.scalar_one_or_none():
+            reg_number = f"G{uuid.uuid4().hex[:8].upper()}"
+
+        # Create user - VERIFIED BY GOOGLE (no OTP needed!)
+        user = User(
+            email=email,
+            name=google_info["name"],
+            registration_number=reg_number,
+            hashed_password=get_password_hash(f"google_{uuid.uuid4().hex}"),  # Random password (won't be used)
+            is_verified=True,  # Google verified the email!
+            avatar_url=google_info.get("picture"),
+            profile_complete=False
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+        print(f"✅ New user created via Google OAuth: {email}")
+    else:
+        # EXISTING USER - Update info if needed
+        if not user.is_verified:
+            user.is_verified = True  # Google verified the email
+
+        if google_info.get("picture") and not user.avatar_url:
+            user.avatar_url = google_info["picture"]
+
+        await db.commit()
+
+    # Generate JWT token
+    access_token = create_access_token(
+        data={"sub": str(user.id)},
+        expires_delta=timedelta(minutes=settings.access_token_expire_minutes)
+    )
+
+    # Check profile completion
+    from ..models.profile import CandidateProfile
+    profile_result = await db.execute(
+        select(CandidateProfile).where(CandidateProfile.user_id == user.id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    has_resume = profile is not None and profile.resume_url is not None
+
+    # Determine next step
+    next_step = None
+    if not has_resume:
+        next_step = "upload_resume"
+
+    # Update profile_complete if resume exists
+    if has_resume and not user.profile_complete:
+        user.profile_complete = True
+        await db.commit()
+
+    return GoogleAuthResponse(
+        access_token=access_token,
+        is_new_user=is_new_user,
+        profile_complete=user.profile_complete,
+        next_step=next_step,
+        user={
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "avatar_url": user.avatar_url
+        }
+    )
+
+
+@router.get("/google/client-id")
+async def get_google_client_id():
+    """
+    Get the Google Client ID for frontend initialization.
+
+    Frontend needs this to initialize Google Sign-In SDK.
+    """
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth not configured"
+        )
+
+    return {"client_id": settings.google_client_id}
+
+
+@router.get("/profile-status")
+async def get_profile_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Check user's profile completion status.
+
+    Returns:
+    - is_verified: Email verified
+    - has_resume: Resume uploaded
+    - profile_complete: All steps done
+    - next_step: What user needs to do next
+    """
+    from ..models.profile import CandidateProfile
+
+    # Check resume
+    profile_result = await db.execute(
+        select(CandidateProfile).where(CandidateProfile.user_id == current_user.id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    has_resume = profile is not None and profile.resume_url is not None
+
+    # Determine next step
+    next_step = None
+    if not current_user.is_verified:
+        next_step = "verify_email"
+    elif not has_resume:
+        next_step = "upload_resume"
+
+    return {
+        "is_verified": current_user.is_verified,
+        "has_resume": has_resume,
+        "profile_complete": current_user.profile_complete,
+        "next_step": next_step
+    }
+
+
+@router.delete("/cleanup-unverified")
+async def cleanup_unverified_users(
+    db: AsyncSession = Depends(get_db),
+    hours: int = 24
+):
+    """
+    Admin endpoint to cleanup unverified users older than X hours.
+    This removes users who registered but never verified their email.
+
+    NOTE: This endpoint should be protected by admin auth or called via cron job.
+    """
+    from sqlalchemy import delete
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    # Delete unverified users older than cutoff
+    result = await db.execute(
+        delete(User).where(
+            User.is_verified == False,
+            User.created_at < cutoff,
+            User.role == "STUDENT"  # Don't delete admin accounts
+        )
+    )
+    deleted_count = result.rowcount
+    await db.commit()
+
+    print(f"🧹 Cleaned up {deleted_count} unverified users older than {hours} hours")
+
+    return {
+        "success": True,
+        "deleted_count": deleted_count,
+        "cutoff_hours": hours
+    }

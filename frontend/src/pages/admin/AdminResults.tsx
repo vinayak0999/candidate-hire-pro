@@ -99,6 +99,24 @@ export default function AdminResults() {
         }
     };
 
+    const handleExportExcel = async () => {
+        try {
+            const blob = await adminApiService.exportTestResultsExcel(selectedJob || undefined);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const timestamp = new Date().toISOString().slice(0, 10);
+            a.download = `test_results_${selectedJob ? `job${selectedJob}_` : ''}${timestamp}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export results. Make sure there are results to export.');
+        }
+    };
+
     return (
         <div className="admin-results">
             <div className="page-header">
@@ -106,6 +124,9 @@ export default function AdminResults() {
                     <h1>Job Results</h1>
                     <p className="page-subtitle">View candidate submissions by job, download answers, and assign marks</p>
                 </div>
+                <button className="btn-export" onClick={handleExportExcel}>
+                    <Download size={18} /> Export to Excel
+                </button>
             </div>
 
             {/* Filter Bar */}

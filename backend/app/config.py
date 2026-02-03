@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # OTP Settings
     otp_expire_minutes: int = 10
     reset_token_expire_minutes: int = 60
+
+    # Google OAuth
+    google_client_id: str = ""
+    google_client_secret: str = ""
     
     # AI/LLM Configuration
     # Multiple Gemini API keys for redundancy (comma-separated)

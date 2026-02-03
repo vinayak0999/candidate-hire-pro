@@ -52,6 +52,7 @@ export interface Job {
     created_at: string;
     application_status?: JobStatus;
     test_id?: number;
+    test_completed?: boolean;  // True if user has completed the assessment
 }
 
 export interface JobStats {

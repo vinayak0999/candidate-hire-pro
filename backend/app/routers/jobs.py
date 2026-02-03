@@ -17,6 +17,8 @@ async def get_all_jobs(
     current_user: User = Depends(get_current_user)
 ):
     """Get all available jobs"""
+    from ..models.test import TestAttempt
+    
     result = await db.execute(
         select(Job).where(Job.is_active == True).order_by(Job.created_at.desc())
     )
@@ -28,7 +30,20 @@ async def get_all_jobs(
     )
     applications = {app.job_id: app.status for app in app_result.scalars().all()}
     
-    # Add application status to jobs
+    # Get user's completed tests
+    test_ids = [job.test_id for job in jobs if job.test_id]
+    completed_tests = set()
+    if test_ids:
+        attempts_result = await db.execute(
+            select(TestAttempt.test_id).where(
+                TestAttempt.user_id == current_user.id,
+                TestAttempt.status == 'completed',
+                TestAttempt.test_id.in_(test_ids)
+            )
+        )
+        completed_tests = set(row[0] for row in attempts_result.all())
+    
+    # Add application status and test_completed to jobs
     job_responses = []
     for job in jobs:
         job_dict = {
@@ -44,7 +59,8 @@ async def get_all_jobs(
             "test_id": job.test_id,
             "is_active": job.is_active,
             "created_at": job.created_at,
-            "application_status": applications.get(job.id)
+            "application_status": applications.get(job.id),
+            "test_completed": job.test_id in completed_tests if job.test_id else False
         }
         job_responses.append(JobResponse(**job_dict))
     

@@ -6,7 +6,7 @@ import os
 
 from .config import get_settings
 from .database import init_db
-from .routers import auth_router, jobs_router, courses_router, assessments_router, admin_router, tests_router, profile_router, notification_router
+from .routers import auth_router, jobs_router, courses_router, assessments_router, admin_router, tests_router, profile_router, notification_router, standalone_assessments_router
 
 settings = get_settings()
 
@@ -36,7 +36,25 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+
+# Cache control middleware - prevents browser caching of API responses
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+class NoCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Add no-cache headers to API responses (not static files)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+app.add_middleware(NoCacheMiddleware)
 
 # Include routers
 app.include_router(auth_router)
@@ -47,6 +65,7 @@ app.include_router(admin_router)
 app.include_router(tests_router)
 app.include_router(profile_router)
 app.include_router(notification_router)
+app.include_router(standalone_assessments_router)
 
 # Setup uploads directory path
 uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
@@ -71,6 +90,11 @@ async def fallback_video(video_id: str):
 
 # Mount uploads directory for other static files (comes after route so route takes precedence)
 app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
+
+# Mount static directory for large documents (>10MB that exceed cloud limits)
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+os.makedirs(static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @app.get("/")

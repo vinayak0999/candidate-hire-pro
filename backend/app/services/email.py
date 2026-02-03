@@ -56,6 +56,10 @@ def get_reset_token_expiry() -> datetime:
 async def send_otp_email(email: str, name: str, otp: str) -> bool:
     """Send OTP verification email"""
     try:
+        print(f"[Email] Preparing OTP email to: {email}")
+        print(f"[Email] Using SMTP: {settings.mail_server}:{settings.mail_port}")
+        print(f"[Email] From: {settings.mail_from} ({settings.mail_username})")
+
         template = jinja_env.get_template("otp_verification.html")
         html_content = template.render(
             name=name,
@@ -63,19 +67,23 @@ async def send_otp_email(email: str, name: str, otp: str) -> bool:
             expiry_minutes=settings.otp_expire_minutes,
             app_name=settings.app_name
         )
-        
+
         message = MessageSchema(
             subject=f"Verify Your Email - {settings.app_name}",
             recipients=[email],
             body=html_content,
             subtype=MessageType.html
         )
-        
+
         fm = FastMail(conf)
         await fm.send_message(message)
+        print(f"[Email] SUCCESS - OTP sent to {email}")
         return True
     except Exception as e:
-        print(f"Failed to send OTP email: {e}")
+        import traceback
+        print(f"[Email] FAILED to send OTP email to {email}")
+        print(f"[Email] Error: {type(e).__name__}: {e}")
+        print(f"[Email] Traceback: {traceback.format_exc()}")
         return False
 
 

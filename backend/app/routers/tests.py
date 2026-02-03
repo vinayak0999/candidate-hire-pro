@@ -92,6 +92,52 @@ async def test_heartbeat(
         return {"status": "error", "message": str(e)[:100]}
 
 
+# ============================================================================
+# HEARTBEAT - Keep session alive during long tests
+# ============================================================================
+
+@router.post("/heartbeat/{attempt_id}")
+async def heartbeat(
+    attempt_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Keep test session alive during long tests (1.5+ hours).
+    
+    Called every 2 minutes by frontend to:
+    - Prevent connection timeouts
+    - Update last activity timestamp
+    - Verify session is still valid
+    """
+    result = await db.execute(
+        select(TestAttempt)
+        .where(TestAttempt.id == attempt_id)
+        .where(TestAttempt.user_id == current_user.id)
+        .where(TestAttempt.status == "in_progress")
+    )
+    attempt = result.scalar_one_or_none()
+    
+    if not attempt:
+        return {"alive": False, "reason": "attempt_not_found_or_completed"}
+    
+    # Update last_activity timestamp if the field exists
+    # This helps track active sessions
+    try:
+        if hasattr(attempt, 'last_activity'):
+            attempt.last_activity = datetime.now(timezone.utc)
+            await db.commit()
+    except:
+        pass  # Field might not exist, that's ok
+    
+    return {
+        "alive": True,
+        "attempt_id": attempt_id,
+        "status": attempt.status,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
 @router.post("/emergency-submit/{attempt_id}")
 async def emergency_submit_test(
     attempt_id: int,
@@ -336,9 +382,29 @@ async def bulk_save_answers(
     else:
         questions_map = {}
 
+    # Helper to normalize answer to option ID
+    def normalize_to_option_id(options, text_or_id):
+        """Convert text answer to option ID for consistent comparison"""
+        if not options or not text_or_id:
+            return text_or_id
+        # First check if it's already an ID
+        for opt in options:
+            if isinstance(opt, dict) and opt.get('id') == text_or_id:
+                return text_or_id  # Already an ID
+        # Then check if it's text that matches an option
+        for opt in options:
+            if isinstance(opt, dict) and opt.get('text') == text_or_id:
+                return opt.get('id', text_or_id)
+        return text_or_id  # Return as-is if not found
+
     for answer_data in answers:
         try:
             question = questions_map.get(answer_data.question_id)
+
+            # Normalize the answer for MCQ questions
+            normalized_answer = answer_data.answer_text
+            if question and question.question_type == "mcq" and question.options:
+                normalized_answer = normalize_to_option_id(question.options, answer_data.answer_text)
 
             # Check existing
             existing_result = await db.execute(
@@ -352,11 +418,11 @@ async def bulk_save_answers(
             is_correct = None
             marks_obtained = 0
             if question and question.question_type == "mcq" and question.correct_answer:
-                is_correct = (answer_data.answer_text == question.correct_answer)
+                is_correct = (normalized_answer == question.correct_answer)
                 marks_obtained = question.marks if is_correct else 0
 
             if existing:
-                existing.answer_text = answer_data.answer_text
+                existing.answer_text = normalized_answer
                 existing.annotation_data = answer_data.annotation_data
                 existing.time_spent_seconds = answer_data.time_spent_seconds
                 existing.answered_at = datetime.now(timezone.utc)
@@ -366,7 +432,7 @@ async def bulk_save_answers(
                 new_answer = UserAnswer(
                     attempt_id=attempt_id,
                     question_id=answer_data.question_id,
-                    answer_text=answer_data.answer_text,
+                    answer_text=normalized_answer,
                     annotation_data=answer_data.annotation_data,
                     is_correct=is_correct,
                     marks_obtained=marks_obtained,
@@ -513,6 +579,17 @@ async def start_test(
         # For demo, generate some sample MCQ questions
         questions = await _get_sample_questions(db, test)
     
+    # CRITICAL: Prevent starting test with no questions
+    if not questions:
+        # Delete the attempt we just created since test can't proceed
+        if not existing_attempt:
+            await db.delete(attempt)
+            await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="This test has no questions configured. Please contact the administrator."
+        )
+    
     # Get division documents for agent_analysis questions
     division_docs = None
     if test.division_id:
@@ -591,6 +668,10 @@ async def get_test_session(
     
     if not questions:
         questions = await _get_sample_questions(db, test)
+    
+    # If still no questions, return None (cannot resume without questions)
+    if not questions:
+        return None
     
     # Get division documents for agent_analysis questions
     division_docs = None
@@ -742,16 +823,36 @@ async def submit_answer(
             )
             existing_answer = existing_result.scalar_one_or_none()
 
+            # Helper to normalize answer to option ID
+            def normalize_to_option_id(options, text_or_id):
+                """Convert text answer to option ID for consistent comparison"""
+                if not options or not text_or_id:
+                    return text_or_id
+                # First check if it's already an ID
+                for opt in options:
+                    if isinstance(opt, dict) and opt.get('id') == text_or_id:
+                        return text_or_id  # Already an ID
+                # Then check if it's text that matches an option
+                for opt in options:
+                    if isinstance(opt, dict) and opt.get('text') == text_or_id:
+                        return opt.get('id', text_or_id)
+                return text_or_id  # Return as-is if not found
+
+            # Normalize the answer for MCQ questions
+            normalized_answer = data.answer_text
+            if question.question_type == "mcq" and question.options:
+                normalized_answer = normalize_to_option_id(question.options, data.answer_text)
+
             if existing_answer:
                 # Update existing answer
-                existing_answer.answer_text = data.answer_text
+                existing_answer.answer_text = normalized_answer
                 existing_answer.annotation_data = data.annotation_data
                 existing_answer.time_spent_seconds = data.time_spent_seconds
                 existing_answer.answered_at = datetime.now(timezone.utc)
 
                 # Auto-score for MCQ
                 if question.question_type == "mcq" and question.correct_answer:
-                    existing_answer.is_correct = (data.answer_text == question.correct_answer)
+                    existing_answer.is_correct = (normalized_answer == question.correct_answer)
                     existing_answer.marks_obtained = question.marks if existing_answer.is_correct else 0
 
                 await db.commit()
@@ -763,13 +864,13 @@ async def submit_answer(
 
                 # Auto-score for MCQ
                 if question.question_type == "mcq" and question.correct_answer:
-                    is_correct = (data.answer_text == question.correct_answer)
+                    is_correct = (normalized_answer == question.correct_answer)
                     marks_obtained = question.marks if is_correct else 0
 
                 answer = UserAnswer(
                     attempt_id=attempt_id,
                     question_id=data.question_id,
-                    answer_text=data.answer_text,
+                    answer_text=normalized_answer,  # Store normalized ID
                     annotation_data=data.annotation_data,
                     is_correct=is_correct,
                     marks_obtained=marks_obtained,
@@ -913,7 +1014,10 @@ async def upload_answer_file(
 
     public_url = None
 
-    # Try Supabase with retries
+    # BEST PRACTICE: Primary = Supabase, Fallback = AWS S3
+    # Both are cloud storage, ensuring production compatibility
+    
+    # 1. Try Supabase (primary)
     try:
         from ..services.supabase_upload import upload_bytes_to_supabase
 
@@ -934,24 +1038,43 @@ async def upload_answer_file(
     except Exception as e:
         print(f"Supabase module error: {e}")
 
-    # Fallback to local storage if Supabase failed
+    # 2. Fallback to AWS S3 (cloud-based, production-safe)
     if not public_url:
-        print("⚠️ Supabase failed, using local storage for answer file...")
-        uploads_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "uploads", "answers"
+        print("⚠️ Supabase failed, trying AWS S3 fallback...")
+        try:
+            import boto3
+            from botocore.config import Config
+            
+            s3 = boto3.client(
+                's3',
+                aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                region_name=os.getenv('AWS_REGION', 'ap-south-1'),
+                config=Config(signature_version='s3v4')
+            )
+            
+            s3_bucket = 'autonex-hire'
+            s3_key = f"answer-files/{safe_filename}"
+            
+            # Upload to S3
+            s3.put_object(
+                Bucket=s3_bucket,
+                Key=s3_key,
+                Body=file_content,
+                ContentType=file.content_type or "application/octet-stream"
+            )
+            
+            public_url = f"https://{s3_bucket}.s3.ap-south-1.amazonaws.com/{s3_key}"
+            print(f"✅ Answer file uploaded to S3 fallback: {public_url}")
+        except Exception as e:
+            print(f"S3 fallback also failed: {e}")
+
+    # 3. If both cloud options failed, return user-friendly error
+    if not public_url:
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud storage temporarily unavailable. Please try again in a few moments."
         )
-        os.makedirs(uploads_dir, exist_ok=True)
-
-        local_path = os.path.join(uploads_dir, safe_filename)
-        async with aiofiles.open(local_path, 'wb') as f:
-            await f.write(file_content)
-
-        public_url = f"/uploads/answers/{safe_filename}"
-        print(f"✅ Answer file saved locally: {public_url}")
-
-    if not public_url:
-        raise HTTPException(status_code=500, detail="Failed to save answer file. Please try again.")
     
     # Store file URL as answer
     answer = await db.execute(
@@ -1005,6 +1128,16 @@ async def complete_test(
     if not attempt:
         raise HTTPException(status_code=404, detail="Test attempt not found")
 
+    # Helper to get option text from ID
+    def get_option_text(options, option_id):
+        """Get the text of an option by its ID"""
+        if not options or not option_id:
+            return option_id
+        for opt in options:
+            if isinstance(opt, dict) and opt.get('id') == option_id:
+                return opt.get('text', option_id)
+        return option_id  # Return ID if not found
+
     # If already completed, return the existing result (idempotent)
     if attempt.status == "completed":
         # Fetch and return existing results
@@ -1030,11 +1163,14 @@ async def complete_test(
         answer_details = []
         for answer in answers:
             question = questions_map.get(answer.question_id)
+            # Convert IDs to text for display
+            user_answer_text = get_option_text(question.options, answer.answer_text) if question else answer.answer_text
+            correct_answer_text = get_option_text(question.options, question.correct_answer) if question else None
             answer_details.append({
                 "question_id": answer.question_id,
                 "question_text": question.question_text if question else "",
-                "user_answer": answer.answer_text,
-                "correct_answer": question.correct_answer if question else None,
+                "user_answer": user_answer_text,
+                "correct_answer": correct_answer_text,
                 "is_correct": answer.is_correct,
                 "marks_obtained": answer.marks_obtained,
                 "max_marks": question.marks if question else 0
@@ -1134,15 +1270,18 @@ async def complete_test(
         questions_map = {q.id: q for q in questions_result.scalars().all()}
     else:
         questions_map = {}
-    
+
     answer_details = []
     for answer in answers:
         question = questions_map.get(answer.question_id)
+        # Convert IDs to text for display
+        user_answer_text = get_option_text(question.options, answer.answer_text) if question else answer.answer_text
+        correct_answer_text = get_option_text(question.options, question.correct_answer) if question else None
         answer_details.append({
             "question_id": answer.question_id,
             "question_text": question.question_text if question else "",
-            "user_answer": answer.answer_text,
-            "correct_answer": question.correct_answer if question else None,
+            "user_answer": user_answer_text,
+            "correct_answer": correct_answer_text,
             "is_correct": answer.is_correct,
             "marks_obtained": answer.marks_obtained,
             "max_marks": question.marks if question else 0
@@ -1152,10 +1291,10 @@ async def complete_test(
         attempt_id=attempt.id,
         test_id=attempt.test_id,
         test_title=test.title if test else "Unknown",
-        score=attempt.score,
-        total_marks=total_marks,
-        percentage=attempt.percentage,
-        passed=attempt.passed,
+        score=attempt.score or 0,
+        total_marks=total_marks or 0,
+        percentage=attempt.percentage or 0,
+        passed=attempt.passed or False,
         time_taken_seconds=attempt.time_taken_seconds or 0,
         completed_at=attempt.completed_at,
         answers=answer_details
@@ -1421,37 +1560,51 @@ async def get_test_result(
     )
     test = test_result.scalar_one_or_none()
     
+    # Helper to get option text from ID
+    def get_option_text(options, option_id):
+        """Get the text of an option by its ID"""
+        if not options or not option_id:
+            return option_id
+        for opt in options:
+            if isinstance(opt, dict) and opt.get('id') == option_id:
+                return opt.get('text', option_id)
+        return option_id  # Return ID if not found
+
     # Get answers with questions
     answers_result = await db.execute(
         select(UserAnswer).where(UserAnswer.attempt_id == attempt_id)
     )
     answers = answers_result.scalars().all()
-    
+
     answer_details = []
     for answer in answers:
         q_result = await db.execute(
             select(Question).where(Question.id == answer.question_id)
         )
         question = q_result.scalar_one_or_none()
-        
+
+        # Convert IDs to text for display
+        user_answer_text = get_option_text(question.options, answer.answer_text) if question else answer.answer_text
+        correct_answer_text = get_option_text(question.options, question.correct_answer) if question else None
+
         answer_details.append({
             "question_id": answer.question_id,
             "question_text": question.question_text if question else "",
-            "user_answer": answer.answer_text,
-            "correct_answer": question.correct_answer if question else None,
+            "user_answer": user_answer_text,
+            "correct_answer": correct_answer_text,
             "is_correct": answer.is_correct,
             "marks_obtained": answer.marks_obtained,
             "max_marks": question.marks if question else 0
         })
-    
+
     return TestResultResponse(
         attempt_id=attempt.id,
         test_id=attempt.test_id,
         test_title=test.title if test else "Unknown",
-        score=attempt.score,
-        total_marks=attempt.total_marks,
-        percentage=attempt.percentage,
-        passed=attempt.passed,
+        score=attempt.score or 0,
+        total_marks=attempt.total_marks or 0,
+        percentage=attempt.percentage or 0,
+        passed=attempt.passed or False,
         time_taken_seconds=attempt.time_taken_seconds or 0,
         completed_at=attempt.completed_at,
         answers=answer_details

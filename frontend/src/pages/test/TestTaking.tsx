@@ -208,6 +208,33 @@ export default function TestTaking() {
         return () => clearInterval(interval);
     }, [isStandaloneAssessment, session]);
 
+    // CRITICAL: Keep session alive with heartbeat every 2 minutes
+    // Prevents connection timeouts during long 1.5+ hour tests
+    useEffect(() => {
+        if (!session) return;
+        const token = localStorage.getItem('access_token');
+        if (!token) return;
+
+        const heartbeat = async () => {
+            try {
+                // Simple ping to keep connection alive
+                await fetch(`${API_BASE_URL}/tests/heartbeat/${session.attempt_id}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+            } catch (e) {
+                console.log('Heartbeat failed (non-critical)');
+            }
+        };
+
+        // Send heartbeat every 2 minutes
+        const heartbeatInterval = setInterval(heartbeat, 120000);
+        // Also send immediately
+        heartbeat();
+
+        return () => clearInterval(heartbeatInterval);
+    }, [session]);
+
     // Check for failed submission and offer retry
     useEffect(() => {
         const failedAttempt = localStorage.getItem('failed_submission_attempt');
@@ -483,6 +510,11 @@ export default function TestTaking() {
 
                         if (res.ok) {
                             fileUploaded = true;
+                            // Mark the question as answered in local state
+                            setAnswers(prev => ({
+                                ...prev,
+                                [questionId]: `FILE:${globalAnswerFile.name}`
+                            }));
                         } else if (attempt < 2) {
                             await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
                         }
@@ -1087,7 +1119,21 @@ export default function TestTaking() {
                                         type="file"
                                         id="file-input"
                                         accept=".xlsx,.xls,.csv"
-                                        onChange={(e) => e.target.files?.[0] && setGlobalAnswerFile(e.target.files[0])}
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                setGlobalAnswerFile(file);
+                                                // Mark all agent_analysis questions as answered with file
+                                                if (session) {
+                                                    const agentQs = session.questions.filter(q => q.question_type === 'agent_analysis');
+                                                    const updates: Record<number, string> = {};
+                                                    agentQs.forEach(q => {
+                                                        updates[q.id] = `FILE:${file.name}`;
+                                                    });
+                                                    setAnswers(prev => ({ ...prev, ...updates }));
+                                                }
+                                            }
+                                        }}
                                         hidden
                                     />
                                     <label htmlFor="file-input" className={`upload-zone ${globalAnswerFile ? 'has-file' : ''}`}>

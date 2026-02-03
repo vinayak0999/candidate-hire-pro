@@ -154,12 +154,18 @@ export default function Jobs() {
                                     <div className="job-actions">
                                         {job.application_status === 'applied' || job.application_status === 'shortlisted' ? (
                                             job.test_id ? (
-                                                <button
-                                                    className="btn-start-test"
-                                                    onClick={() => handleStartAssessment(job.id)}
-                                                >
-                                                    Start Assessment
-                                                </button>
+                                                job.test_completed ? (
+                                                    <button className="btn-completed" disabled>
+                                                        ✓ Completed
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        className="btn-start-test"
+                                                        onClick={() => handleStartAssessment(job.id)}
+                                                    >
+                                                        Start Assessment
+                                                    </button>
+                                                )
                                             ) : (
                                                 <button className="btn-view-job" disabled>Applied</button>
                                             )

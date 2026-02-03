@@ -33,6 +33,9 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     verification_otp = Column(String(6), nullable=True)
     otp_expires_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Profile completion (requires resume upload)
+    profile_complete = Column(Boolean, default=False)
     
     # Password reset
     reset_token = Column(String(64), nullable=True)

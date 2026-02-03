@@ -29,6 +29,7 @@ class UserProfile(UserBase):
     avatar_url: Optional[str] = None
     role: UserRole
     is_verified: bool = False
+    profile_complete: bool = False  # True if resume has been uploaded
     neo_pat_score: int
     solved_easy: int
     solved_medium: int

@@ -202,6 +202,40 @@ class UserLanguageCreate(BaseModel):
     proficiency: Optional[str] = "intermediate"
 
 
+class EducationUpdate(BaseModel):
+    school: Optional[str] = None
+    degree: Optional[str] = None
+    field_of_study: Optional[str] = None
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None
+    gpa: Optional[str] = None
+
+
+class WorkExperienceUpdate(BaseModel):
+    company: Optional[str] = None
+    role: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    is_current: Optional[bool] = None
+    description: Optional[str] = None
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    technologies: Optional[List[str]] = None
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None
+    url: Optional[str] = None
+
+
+class SkillAdd(BaseModel):
+    name: str
+    category: Optional[str] = "other"
+
+
 class ProfileUpdate(BaseModel):
     """Update profile fields"""
     professional_summary: Optional[str] = None

@@ -326,10 +326,10 @@ export default function Assessments() {
 
                                         {assessment.status === 'completed' ? (
                                             <button
-                                                className="btn-view-result"
-                                                onClick={() => handleStartTest(assessment.id)}
+                                                className="btn-completed"
+                                                disabled
                                             >
-                                                <Play size={18} /> Retake Test
+                                                <CheckCircle size={18} /> Completed
                                             </button>
                                         ) : (
                                             <button

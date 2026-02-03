@@ -40,12 +40,16 @@ class Question(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     division_id = Column(Integer, ForeignKey("divisions.id"), nullable=True)  # Division this question belongs to
+    section_id = Column(Integer, ForeignKey("test_sections.id"), nullable=True)  # Section within a test
     question_type = Column(String(50), nullable=False, default=QuestionType.MCQ)
     question_text = Column(Text, nullable=False)
     
+    # Question numbering for sectioned assessments (e.g., "1a", "2b")
+    question_number = Column(String(20), nullable=True)
+    
     # For MCQ questions
-    options = Column(JSON, nullable=True)  # List of options
-    correct_answer = Column(String(500), nullable=True)  # For MCQ: option index or text
+    options = Column(JSON, nullable=True)  # List of options [{"id": "i", "text": "..."}]
+    correct_answer = Column(String(500), nullable=True)  # For MCQ: option id (e.g., "ii")
     
     # For annotation questions (video/image)
     media_url = Column(String(500), nullable=True)  # Image/video URL
@@ -53,13 +57,15 @@ class Question(Base):
     
     # For Reading Comprehension
     passage = Column(Text, nullable=True)  # Reading passage text
+    passage_id = Column(String(50), nullable=True)  # Groups questions under same passage
     
     # For Jumble-Tumble (sentences in correct order)
     sentences = Column(JSON, nullable=True)  # List of sentences in correct order
     
     # For Agent Analysis (In-Page Browser)
-    html_content = Column(Text, nullable=True)  # HTML content for iframe
-    documents = Column(JSON, nullable=True)  # List of {id, title, content} max 4
+    # Can be: raw HTML content, URL to .html file, or URL to .pdf file
+    html_content = Column(Text, nullable=True)  # HTML/PDF content or URL
+    documents = Column(JSON, nullable=True)  # List of {id, title, content} - content can be HTML or PDF URL
     
     marks = Column(Float, default=1.0)
     difficulty = Column(String(20), default="medium")  # easy, medium, hard
@@ -70,6 +76,7 @@ class Question(Base):
     
     # Relationships
     test_questions = relationship("TestQuestion", back_populates="question")
+    section = relationship("TestSection", back_populates="questions")
 
 
 class Test(Base):
@@ -81,6 +88,11 @@ class Test(Base):
     description = Column(String(1000), nullable=True)
     
     division_id = Column(Integer, ForeignKey("divisions.id"), nullable=True)
+    
+    # Assessment type: "job_test" (tied to division/job) or "standalone_assessment"
+    assessment_type = Column(String(50), default="job_test")
+    # Category for standalone assessments (English, Logical, Technical, etc.)
+    category = Column(String(100), nullable=True)
     
     # Test configuration
     duration_minutes = Column(Integer, default=60)
@@ -106,8 +118,31 @@ class Test(Base):
     
     # Relationships
     division = relationship("Division", back_populates="tests")
+    sections = relationship("TestSection", back_populates="test", order_by="TestSection.order")
     test_questions = relationship("TestQuestion", back_populates="test")
     attempts = relationship("TestAttempt", back_populates="test")
+
+
+class TestSection(Base):
+    """Sections within a test (e.g., Grammar & Vocabulary, Reading Comprehension)"""
+    __tablename__ = "test_sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    test_id = Column(Integer, ForeignKey("tests.id"), nullable=False)
+    
+    title = Column(String(255), nullable=False)  # "Section A: Grammar & Vocabulary"
+    instructions = Column(Text, nullable=True)   # "Choose the correct option to complete each sentence."
+    total_marks = Column(Float, default=0)
+    order = Column(Integer, default=0)  # Section order in test
+    
+    # For reading comprehension sections - shared passage
+    passage = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    test = relationship("Test", back_populates="sections")
+    questions = relationship("Question", back_populates="section", order_by="Question.id")
 
 
 class TestQuestion(Base):

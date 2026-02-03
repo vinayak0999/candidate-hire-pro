@@ -14,6 +14,8 @@ const api = axios.create({
     baseURL: API_BASE_URL,
     headers: {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
     },
 });
 
@@ -351,6 +353,13 @@ export const adminApiService = {
     },
     downloadAnswerFile: async (resultId: number) => {
         const response = await adminApi.get(`/test-results/${resultId}/download`, {
+            responseType: 'blob'
+        });
+        return response.data;
+    },
+    exportTestResultsExcel: async (jobId?: number): Promise<Blob> => {
+        const response = await adminApi.get('/test-results/export/excel', {
+            params: jobId ? { job_id: jobId } : {},
             responseType: 'blob'
         });
         return response.data;

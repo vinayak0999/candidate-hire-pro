@@ -27,6 +27,7 @@ class JobResponse(JobBase):
     is_active: bool
     created_at: datetime
     application_status: Optional[JobStatus] = None
+    test_completed: Optional[bool] = False
 
     class Config:
         from_attributes = True
