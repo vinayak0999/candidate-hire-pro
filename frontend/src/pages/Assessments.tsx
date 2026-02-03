@@ -69,7 +69,7 @@ export default function Assessments() {
     const [assessments, setAssessments] = useState<Assessment[]>([]);
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [loading, setLoading] = useState(true);
-
+    const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
     // Result modal state
     const [showResultModal, setShowResultModal] = useState(false);
@@ -201,7 +201,7 @@ export default function Assessments() {
                     <span className={`status-badge ${passed ? 'passed' : 'failed'}`}>
                         {passed ? 'Passed' : 'Failed'}
                     </span>
-                    <span className="assessment-score">{assessment.best_percentage?.toFixed(0)}%</span>
+                    <span className="assessment-score">{(assessment.best_percentage ?? 0).toFixed(0)}%</span>
                 </div>
             );
         }
@@ -219,7 +219,11 @@ export default function Assessments() {
         );
     };
 
+    const categories = ['all', ...new Set(assessments.map(a => a.category).filter(Boolean))];
 
+    const filteredAssessments = selectedCategory === 'all'
+        ? assessments
+        : assessments.filter(a => a.category?.toLowerCase() === selectedCategory.toLowerCase());
 
     const formatDate = (dateStr: string) => {
         return new Date(dateStr).toLocaleDateString('en-US', {
@@ -259,20 +263,33 @@ export default function Assessments() {
 
             <div className="assessments-content">
                 <div className="assessments-main">
-
+                    {/* Category Filters */}
+                    {activeTab === 'available' && (
+                        <div className="category-filters">
+                            {categories.map(cat => (
+                                <button
+                                    key={cat || 'all'}
+                                    className={`category-pill ${selectedCategory === cat ? 'active' : ''}`}
+                                    onClick={() => setSelectedCategory(cat || 'all')}
+                                >
+                                    {cat === 'all' ? 'All' : cat}
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Available Tests Tab */}
                     {activeTab === 'available' && (
                         loading ? (
                             <div className="loading-state">Loading assessments...</div>
-                        ) : assessments.length === 0 ? (
+                        ) : filteredAssessments.length === 0 ? (
                             <div className="empty-state">
                                 <FileText size={64} className="empty-state-icon" />
                                 <p className="empty-state-text">No assessments available</p>
                             </div>
                         ) : (
                             <div className="assessments-grid">
-                                {assessments.map(assessment => (
+                                {filteredAssessments.map(assessment => (
                                     <div key={assessment.id} className="assessment-card">
                                         <div className="assessment-card-header">
                                             <div className={`assessment-icon ${getCategoryClass(assessment.category)}`}>
@@ -310,19 +327,9 @@ export default function Assessments() {
                                         {assessment.status === 'completed' ? (
                                             <button
                                                 className="btn-view-result"
-                                                onClick={() => {
-                                                    // Get the latest attempt from history and show result
-                                                    loadHistory().then(() => {
-                                                        const attemptForAssessment = history.find(h => h.test_id === assessment.id);
-                                                        if (attemptForAssessment) {
-                                                            handleViewResult(attemptForAssessment.id);
-                                                        }
-                                                    });
-                                                }}
-                                                disabled
-                                                style={{ opacity: 0.7, cursor: 'not-allowed' }}
+                                                onClick={() => handleStartTest(assessment.id)}
                                             >
-                                                <CheckCircle size={18} /> Completed
+                                                <Play size={18} /> Retake Test
                                             </button>
                                         ) : (
                                             <button
@@ -366,10 +373,10 @@ export default function Assessments() {
                                         </div>
                                         <div className="history-score">
                                             <div className={`history-percentage ${item.passed ? 'passed' : 'failed'}`}>
-                                                {item.percentage?.toFixed(0)}%
+                                                {(item.percentage ?? 0).toFixed(0)}%
                                             </div>
                                             <div className="history-marks">
-                                                {item.score}/{item.total_marks} marks
+                                                {item.score ?? 0}/{item.total_marks ?? 0} marks
                                             </div>
                                         </div>
                                     </div>
@@ -447,19 +454,19 @@ export default function Assessments() {
 
                         <div className="result-modal-score">
                             <div className={`score-circle ${currentResult.passed ? 'passed' : 'failed'}`}>
-                                <span className="score-percentage">{currentResult.percentage.toFixed(0)}%</span>
+                                <span className="score-percentage">{(currentResult.percentage ?? 0).toFixed(0)}%</span>
                                 <span className="score-label">Score</span>
                             </div>
                         </div>
 
                         <div className="result-modal-stats">
                             <div className="result-stat">
-                                <span className="result-stat-value">{currentResult.score}/{currentResult.total_marks}</span>
+                                <span className="result-stat-value">{currentResult.score ?? 0}/{currentResult.total_marks ?? 0}</span>
                                 <span className="result-stat-label">Marks</span>
                             </div>
                             <div className="result-stat">
                                 <span className="result-stat-value">
-                                    {Math.floor(currentResult.time_taken_seconds / 60)}m {currentResult.time_taken_seconds % 60}s
+                                    {Math.floor((currentResult.time_taken_seconds ?? 0) / 60)}m {(currentResult.time_taken_seconds ?? 0) % 60}s
                                 </span>
                                 <span className="result-stat-label">Time Taken</span>
                             </div>

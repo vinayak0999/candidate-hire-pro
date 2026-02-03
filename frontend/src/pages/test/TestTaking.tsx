@@ -971,6 +971,26 @@ export default function TestTaking() {
 
                     {/* Question Content */}
                     <div className="q-content" key={`content-${currentQuestion?.id}`}>
+                        {/* Display passage for reading comprehension questions */}
+                        {currentQuestion?.passage && (
+                            <div className="passage-box" style={{
+                                background: '#f8f9fa',
+                                border: '1px solid #e0e0e0',
+                                borderRadius: '8px',
+                                padding: '16px 20px',
+                                marginBottom: '20px',
+                                fontSize: '14px',
+                                lineHeight: '1.7',
+                                color: '#333',
+                                maxHeight: '250px',
+                                overflowY: 'auto'
+                            }}>
+                                <div style={{ fontWeight: '600', marginBottom: '8px', color: '#1a73e8' }}>
+                                    📖 Passage
+                                </div>
+                                <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{currentQuestion.passage}</p>
+                            </div>
+                        )}
                         <p className="q-text">{currentQuestion?.question_text}</p>
 
                         {/* MCQ */}

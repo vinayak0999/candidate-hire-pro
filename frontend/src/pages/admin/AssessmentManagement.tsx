@@ -234,6 +234,8 @@ export default function AssessmentManagement() {
         description: '',
         category: 'English',
         duration_minutes: 60,
+        total_questions: 0,
+        total_marks: 0,
         passing_marks: 0,
     });
 
@@ -317,6 +319,8 @@ export default function AssessmentManagement() {
                         description: assessmentForm.description,
                         category: assessmentForm.category,
                         duration_minutes: assessmentForm.duration_minutes,
+                        total_questions: assessmentForm.total_questions,
+                        total_marks: assessmentForm.total_marks,
                         passing_marks: assessmentForm.passing_marks,
                     }),
                 });
@@ -460,7 +464,7 @@ export default function AssessmentManagement() {
     const resetAssessmentForm = () => {
         setAssessmentForm({
             id: null, title: '', description: '', category: 'English',
-            duration_minutes: 60, passing_marks: 0,
+            duration_minutes: 60, total_questions: 0, total_marks: 0, passing_marks: 0,
         });
     };
 
@@ -484,6 +488,8 @@ export default function AssessmentManagement() {
             description: a.description || '',
             category: a.category || 'English',
             duration_minutes: a.duration_minutes,
+            total_questions: a.total_questions,
+            total_marks: a.total_marks,
             passing_marks: a.passing_marks,
         });
         setShowAssessmentModal(true);
@@ -851,6 +857,24 @@ export default function AssessmentManagement() {
                                         min="1"
                                         value={assessmentForm.duration_minutes}
                                         onChange={e => setAssessmentForm(p => ({ ...p, duration_minutes: Number(e.target.value) }))}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Total Questions</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={assessmentForm.total_questions}
+                                        onChange={e => setAssessmentForm(p => ({ ...p, total_questions: Number(e.target.value) }))}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Total Marks</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={assessmentForm.total_marks}
+                                        onChange={e => setAssessmentForm(p => ({ ...p, total_marks: Number(e.target.value) }))}
                                     />
                                 </div>
                                 <div className="form-group">
