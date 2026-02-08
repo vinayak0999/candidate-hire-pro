@@ -197,13 +197,20 @@
     letter-spacing: 0.02em;
 }
 
-.label-icon {
-    font-size: 1.1rem;
+.label-emoji {
+    font-size: 1.15rem;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-right: 6px;
+}
+
+.label-text {
+    flex: 1;
 }
 
 .required {
     color: var(--color-error);
-    margin-left: 2px;
+    margin-left: 4px;
 }
 
 .optional {
@@ -273,18 +280,27 @@
     box-shadow: 0 4px 12px rgba(30, 64, 175, 0.15);
 }
 
-.option-icon {
-    font-size: 2rem;
-    margin-bottom: 4px;
+.option-emoji {
+    font-size: 1.8rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.option-card-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .option-title {
+    display: block;
     font-size: 0.95rem;
     font-weight: 700;
     color: var(--color-text-main);
 }
 
 .option-desc {
+    display: block;
     font-size: 0.8rem;
     color: var(--color-text-secondary);
     font-weight: 500;
@@ -320,6 +336,21 @@
     font-weight: 600;
 }
 
+/* Hidden File Input - Properly hide to prevent overlap */
+.file-input-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
 /* Resume Dropzone */
 .resume-dropzone {
     position: relative;
@@ -327,12 +358,18 @@
     border-radius: 20px;
     transition: all 0.2s ease;
     background: rgba(248, 250, 252, 0.5);
+    overflow: hidden;
 }
 
 .resume-dropzone:hover,
 .resume-dropzone.drag-active {
     border-color: var(--color-primary);
     background: rgba(239, 246, 255, 0.5);
+}
+
+.resume-dropzone.drag-active .dropzone-emoji {
+    transform: scale(1.1);
+    transition: all 0.2s ease;
 }
 
 .resume-dropzone.has-file {
@@ -349,29 +386,51 @@
     padding: 32px 24px;
     text-align: center;
     cursor: pointer;
-    gap: 8px;
+    gap: 12px;
+    min-height: 140px;
 }
 
-.upload-icon {
+.dropzone-emoji {
     font-size: 2.5rem;
-    color: var(--color-text-muted);
+    line-height: 1;
+}
+
+.upload-text-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
 }
 
 .upload-text {
-    font-size: 1rem;
-    font-weight: 700;
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 600;
     color: var(--color-text-main);
+    line-height: 1.4;
 }
 
 .upload-hint {
+    display: block;
     font-size: 0.85rem;
     color: var(--color-text-secondary);
+    font-weight: 500;
 }
 
 .file-name {
-    font-size: 1rem;
+    display: block;
+    font-size: 0.95rem;
     font-weight: 700;
     color: var(--color-success);
+    word-break: break-all;
+    max-width: 100%;
+}
+
+.file-size {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    font-weight: 500;
 }
 
 .remove-file {
@@ -394,13 +453,22 @@
 }
 
 .form-hint {
-    font-size: 0.85rem;
-    color: var(--color-primary);
-    margin: 0;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    margin: 10px 0 0 0;
     font-weight: 500;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+    background: #F8FAFC;
+    padding: 10px 14px;
+    border-radius: 10px;
+}
+
+.hint-emoji {
+    font-size: 1rem;
+    line-height: 1;
+    flex-shrink: 0;
 }
 
 /* Upload Progress Bar */
@@ -514,10 +582,125 @@
     }
 
     .wizard-card {
-        padding: 24px;
+        padding: 20px;
+        border-radius: 20px;
+    }
+
+    .wizard-header {
+        margin-bottom: 28px;
+    }
+
+    .wizard-header h2 {
+        font-size: 1.5rem;
+    }
+
+    .wizard-form {
+        gap: 20px;
     }
 
     .option-cards {
         grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .option-card {
+        padding: 18px 14px;
+        flex-direction: row;
+        text-align: left;
+        gap: 14px;
+    }
+
+    .option-emoji {
+        margin-bottom: 0;
+    }
+
+    .option-card-text {
+        flex: 1;
+    }
+
+    .form-input,
+    .form-textarea {
+        padding: 14px 16px;
+        font-size: 0.95rem;
+    }
+
+    .dropzone-content {
+        padding: 24px 16px;
+        min-height: 120px;
+        gap: 10px;
+    }
+
+    .dropzone-emoji {
+        font-size: 2rem;
+    }
+
+    .upload-text {
+        font-size: 0.9rem;
+    }
+
+    .upload-hint {
+        font-size: 0.8rem;
+    }
+
+    .btn-submit {
+        padding: 16px 24px;
+        font-size: 0.95rem;
+    }
+
+    .form-hint {
+        font-size: 0.75rem;
+        padding: 8px 12px;
+    }
+}
+
+@media (max-width: 480px) {
+    .wizard-container {
+        padding: 12px;
+    }
+
+    .wizard-sidebar {
+        padding: 16px;
+        border-radius: 16px;
+    }
+
+    .wizard-sidebar-title {
+        font-size: 1.25rem;
+    }
+
+    .wizard-card {
+        padding: 16px;
+        border-radius: 16px;
+    }
+
+    .wizard-header h2 {
+        font-size: 1.35rem;
+    }
+
+    .wizard-header p {
+        font-size: 0.9rem;
+    }
+
+    .form-label {
+        font-size: 0.8rem;
+    }
+
+    .label-emoji {
+        font-size: 1rem;
+    }
+
+    .option-card {
+        padding: 14px 12px;
+    }
+
+    .option-emoji {
+        font-size: 1.5rem;
+    }
+
+    .option-title {
+        font-size: 0.85rem;
+    }
+
+    .option-desc {
+        font-size: 0.75rem;
     }
 }

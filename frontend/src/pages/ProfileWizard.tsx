@@ -177,8 +177,8 @@ export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
                             {/* Name Field */}
                             <div className="form-group">
                                 <label className="form-label">
-                                    <span className="label-icon">👤</span>
-                                    Full Name
+                                    <span className="label-emoji">👤</span>
+                                    <span className="label-text">Full Name</span>
                                     <span className="required">*</span>
                                 </label>
                                 <input
@@ -194,8 +194,8 @@ export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
                             {/* Data Annotation Question */}
                             <div className="form-group">
                                 <label className="form-label">
-                                    <span className="label-icon">📊</span>
-                                    Do you have experience with Data Annotation?
+                                    <span className="label-emoji">🎯</span>
+                                    <span className="label-text">Do you have experience with Data Annotation?</span>
                                     <span className="required">*</span>
                                 </label>
                                 <div className="option-cards">
@@ -204,18 +204,22 @@ export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
                                         className={`option-card ${profileData.knowsDataAnnotation === 'yes' ? 'selected' : ''}`}
                                         onClick={() => updateField('knowsDataAnnotation', 'yes')}
                                     >
-                                        <span className="option-icon">✅</span>
-                                        <span className="option-title">Yes, I have experience</span>
-                                        <span className="option-desc">I've worked on data annotation projects</span>
+                                        <span className="option-emoji">✅</span>
+                                        <div className="option-card-text">
+                                            <span className="option-title">Yes, I have experience</span>
+                                            <span className="option-desc">I've worked on data annotation projects</span>
+                                        </div>
                                     </button>
                                     <button
                                         type="button"
                                         className={`option-card ${profileData.knowsDataAnnotation === 'no' ? 'selected' : ''}`}
                                         onClick={() => updateField('knowsDataAnnotation', 'no')}
                                     >
-                                        <span className="option-icon">🌱</span>
-                                        <span className="option-title">I'm new to this</span>
-                                        <span className="option-desc">Eager to learn and get started</span>
+                                        <span className="option-emoji">🌱</span>
+                                        <div className="option-card-text">
+                                            <span className="option-title">I'm new to this</span>
+                                            <span className="option-desc">Eager to learn and get started</span>
+                                        </div>
                                     </button>
                                 </div>
                             </div>
@@ -223,8 +227,8 @@ export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
                             {/* Why Annotation Question */}
                             <div className="form-group">
                                 <label className="form-label">
-                                    <span className="label-icon">💭</span>
-                                    Why do you want to work in Annotation?
+                                    <span className="label-emoji">✨</span>
+                                    <span className="label-text">Why do you want to work in Annotation?</span>
                                     <span className="required">*</span>
                                 </label>
                                 <textarea
@@ -242,8 +246,8 @@ export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
                             {/* Resume Upload */}
                             <div className="form-group">
                                 <label className="form-label">
-                                    <span className="label-icon">📄</span>
-                                    Upload Resume
+                                    <span className="label-emoji">📄</span>
+                                    <span className="label-text">Upload Resume</span>
                                     <span className="required">*</span>
                                 </label>
                                 <div
@@ -263,7 +267,7 @@ export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
                                     <label htmlFor="resume" className="dropzone-content">
                                         {profileData.resume ? (
                                             <>
-                                                <span className="file-icon">📄</span>
+                                                <span className="dropzone-emoji">📎</span>
                                                 <span className="file-name">{profileData.resume.name}</span>
                                                 <span className="file-size">
                                                     {(profileData.resume.size / 1024 / 1024).toFixed(2)} MB
@@ -282,19 +286,18 @@ export default function ProfileWizard({ onComplete }: ProfileWizardProps) {
                                             </>
                                         ) : (
                                             <>
-                                                <span className="upload-icon">📤</span>
-                                                <span className="upload-text">
-                                                    Drag & drop your resume here
-                                                </span>
-                                                <span className="upload-hint">
-                                                    or click to browse • PDF only
-                                                </span>
+                                                <span className="dropzone-emoji">📤</span>
+                                                <div className="upload-text-group">
+                                                    <span className="upload-text">Drag & drop your resume here</span>
+                                                    <span className="upload-hint">or click to browse - PDF only</span>
+                                                </div>
                                             </>
                                         )}
                                     </label>
                                 </div>
                                 <p className="form-hint">
-                                    💡 AI will extract your skills, experience & education automatically
+                                    <span className="hint-emoji">💡</span>
+                                    AI will extract your skills, experience & education automatically
                                 </p>
                             </div>
 
