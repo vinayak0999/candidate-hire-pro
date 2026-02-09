@@ -68,15 +68,14 @@ const Leaderboard = () => {
         return `${mins}m ${secs}s`;
     };
 
-    // Safe getter for display name initial
-    const getInitial = (name: string | null | undefined): string => {
-        if (!name || name.trim() === '') return '?';
-        return name.charAt(0).toUpperCase();
+    // Generate fallback avatar URL (same as Dashboard/Profile)
+    const getFallbackAvatar = (name: string | null | undefined): string => {
+        return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&size=128&background=1E3A8A&color=fff`;
     };
 
-    // Generate fallback avatar URL (consistent with Profile/Dashboard)
-    const getAvatarUrl = (name: string | null | undefined): string => {
-        return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&size=64&background=3b82f6&color=fff&bold=true`;
+    // Get avatar URL - uses Google profile pic if available, otherwise generated
+    const getAvatar = (profileImage: string | null | undefined, name: string | null | undefined): string => {
+        return profileImage || getFallbackAvatar(name);
     };
 
     // Safe percentage display (cap at 100)
@@ -180,9 +179,12 @@ const Leaderboard = () => {
                             <div className="podium-rank">{getRankIcon(entry.rank)}</div>
                             <div className="podium-avatar">
                                 <img
-                                    src={entry.profile_image || getAvatarUrl(entry.display_name)}
+                                    src={getAvatar(entry.profile_image, entry.display_name)}
                                     alt={entry.display_name || 'User'}
                                     className="avatar-img"
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).src = getFallbackAvatar(entry.display_name);
+                                    }}
                                 />
                             </div>
                             <div className="podium-name">
@@ -231,9 +233,12 @@ const Leaderboard = () => {
                                     <div className="name-cell">
                                         <div className="avatar-small">
                                             <img
-                                                src={entry.profile_image || getAvatarUrl(entry.display_name)}
+                                                src={getAvatar(entry.profile_image, entry.display_name)}
                                                 alt={entry.display_name || 'User'}
                                                 className="avatar-img"
+                                                onError={(e) => {
+                                                    (e.target as HTMLImageElement).src = getFallbackAvatar(entry.display_name);
+                                                }}
                                             />
                                         </div>
                                         <span className="name-text">
