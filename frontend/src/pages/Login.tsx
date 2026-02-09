@@ -127,7 +127,7 @@ export default function Login({ onLogin }: LoginProps) {
         }
     }, [handleGoogleAuth]);
 
-    // Google Login - Use popup on desktop, redirect on mobile for better compatibility
+    // Google Login - Use popup on desktop (mobile uses redirect via handleMobileGoogleLogin)
     const googleLogin = useGoogleLogin({
         onSuccess: (tokenResponse) => {
             if ('access_token' in tokenResponse) {
@@ -136,18 +136,9 @@ export default function Login({ onLogin }: LoginProps) {
         },
         onError: (error) => {
             console.error('Google login error:', error);
-            // Provide more helpful error message for mobile users
-            if (isMobile) {
-                setError('Google sign-in failed. If popups are blocked, please allow popups for this site or try on desktop.');
-            } else {
-                setError('Google sign-in failed. Please try again.');
-            }
+            setError('Google sign-in failed. Please try again.');
         },
-        // Popup with better mobile handling
         flow: 'implicit',
-        ux_mode: 'popup',
-        // Force account selection - helps avoid cached state issues on mobile
-        prompt: 'select_account',
     });
 
     // Fallback: Direct Google OAuth URL for mobile (if popup keeps failing)
