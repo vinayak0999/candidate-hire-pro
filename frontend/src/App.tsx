@@ -17,6 +17,7 @@ import Courses from './pages/Courses';
 import Assessments from './pages/Assessments';
 import Profile from './pages/Profile';
 import Notifications from './pages/Notifications';
+import Leaderboard from './pages/Leaderboard';
 
 // Test Components
 import TestTaking from './pages/test/TestTaking';
@@ -238,6 +239,7 @@ function App() {
                         <Route path="/profile" element={<Profile user={user} />} />
                         <Route path="/ide" element={<div className="dashboard"><h1>Open IDE</h1><p>IDE integration coming soon...</p></div>} />
                         <Route path="/notifications" element={<Notifications />} />
+                        <Route path="/leaderboard" element={<Leaderboard />} />
                     </Route>
                 ) : isAuthenticated && !profileComplete ? (
                     // Redirect to complete-profile if authenticated but profile incomplete

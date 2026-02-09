@@ -29,6 +29,12 @@ const AssessmentsIcon = () => (
     </svg>
 );
 
+const LeaderboardIcon = () => (
+    <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M7.5 21H2V9h5.5v12zm7.25-18h-5.5v18h5.5V3zM22 11h-5.5v10H22V11z" />
+    </svg>
+);
+
 interface SidebarProps {
     mobileOpen?: boolean;
     onMobileClose?: () => void;
@@ -94,6 +100,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }: SidebarPr
                 >
                     <AssessmentsIcon />
                     <span className="nav-text">Assessments</span>
+                </NavLink>
+
+                <NavLink
+                    to="/leaderboard"
+                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                    onClick={handleNavClick}
+                >
+                    <LeaderboardIcon />
+                    <span className="nav-text">Leaderboard</span>
                 </NavLink>
             </div>
         </nav>
