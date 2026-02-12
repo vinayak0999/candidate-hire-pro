@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { adminApiService } from '../../services/api';
-import { Plus, Briefcase, MapPin, Users, Check, X, Upload, FileText, Power } from 'lucide-react';
+import { Plus, Briefcase, MapPin, Users, Check, X, Upload, FileText, Power, Eye, Mail, Phone, Calendar, Award } from 'lucide-react';
 import './JobManagement.css';
 
 interface Job {
@@ -17,6 +17,20 @@ interface Job {
     description?: string;
     jd_pdf_url?: string;
     test_id?: number;
+}
+
+interface Applicant {
+    id: number;
+    user_id: number;
+    name: string;
+    email: string;
+    phone?: string;
+    status: string;
+    applied_at?: string;
+    test_status: string;
+    test_score?: number;
+    test_percentage?: number;
+    test_completed_at?: string;
 }
 
 interface Division {
@@ -40,6 +54,9 @@ export default function JobManagement() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [deleteModal, setDeleteModal] = useState<{ open: boolean; job: Job | null }>({ open: false, job: null });
+    const [applicantsModal, setApplicantsModal] = useState<{ open: boolean; job: Job | null }>({ open: false, job: null });
+    const [applicants, setApplicants] = useState<Applicant[]>([]);
+    const [loadingApplicants, setLoadingApplicants] = useState(false);
 
     // Form state
     const [formData, setFormData] = useState({
@@ -220,6 +237,43 @@ export default function JobManagement() {
         }
     };
 
+    const handleViewApplicants = async (job: Job) => {
+        setApplicantsModal({ open: true, job });
+        setLoadingApplicants(true);
+        try {
+            const data = await adminApiService.getJobApplicants(job.id);
+            setApplicants(data);
+        } catch (error) {
+            console.error('Failed to fetch applicants:', error);
+            setApplicants([]);
+        } finally {
+            setLoadingApplicants(false);
+        }
+    };
+
+    const closeApplicantsModal = () => {
+        setApplicantsModal({ open: false, job: null });
+        setApplicants([]);
+    };
+
+    const formatDate = (dateStr?: string) => {
+        if (!dateStr) return 'N/A';
+        return new Date(dateStr).toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        });
+    };
+
+    const getStatusBadgeClass = (status: string) => {
+        switch (status) {
+            case 'completed': return 'status-completed';
+            case 'in_progress': return 'status-in-progress';
+            case 'not_started': return 'status-not-started';
+            default: return '';
+        }
+    };
+
     // Calculate stats
     const totalApplications = jobs.reduce((sum, j) => sum + j.applications, 0);
     const activeJobs = jobs.filter(j => j.is_active).length;
@@ -300,6 +354,14 @@ export default function JobManagement() {
                             )}
 
                             <div className="job-card-actions">
+                                <button
+                                    className="btn-applicants"
+                                    onClick={(e) => { e.stopPropagation(); handleViewApplicants(job); }}
+                                    title="View Applicants"
+                                >
+                                    <Eye size={16} />
+                                    Applicants
+                                </button>
                                 <button
                                     className={`btn-toggle ${job.is_active ? 'active' : ''}`}
                                     onClick={(e) => { e.stopPropagation(); handleToggleActive(job); }}
@@ -530,6 +592,119 @@ export default function JobManagement() {
                             </button>
                             <button className="btn-danger" onClick={confirmDelete}>
                                 Delete Job
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Applicants Modal */}
+            {applicantsModal.open && applicantsModal.job && (
+                <div className="modal-overlay" onClick={closeApplicantsModal}>
+                    <div className="modal modal-xlarge" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <div>
+                                <h2>Applicants</h2>
+                                <p className="modal-subtitle">{applicantsModal.job.role} at {applicantsModal.job.company_name}</p>
+                            </div>
+                            <button className="close-btn" onClick={closeApplicantsModal}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            {loadingApplicants ? (
+                                <div className="loading-state">Loading applicants...</div>
+                            ) : applicants.length === 0 ? (
+                                <div className="empty-state">
+                                    <Users size={48} />
+                                    <h3>No Applicants Yet</h3>
+                                    <p>No one has applied for this job yet.</p>
+                                </div>
+                            ) : (
+                                <div className="applicants-list">
+                                    <div className="applicants-summary">
+                                        <span className="summary-item">
+                                            <Users size={16} />
+                                            {applicants.length} Total Applicants
+                                        </span>
+                                        <span className="summary-item completed">
+                                            <Check size={16} />
+                                            {applicants.filter(a => a.test_status === 'completed').length} Completed Test
+                                        </span>
+                                        <span className="summary-item in-progress">
+                                            <Award size={16} />
+                                            {applicants.filter(a => a.test_status === 'completed' && (a.test_percentage || 0) >= 50).length} Passed
+                                        </span>
+                                    </div>
+                                    <table className="applicants-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Candidate</th>
+                                                <th>Contact</th>
+                                                <th>Applied On</th>
+                                                <th>Test Status</th>
+                                                <th>Score</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {applicants.map(applicant => (
+                                                <tr key={applicant.id}>
+                                                    <td>
+                                                        <div className="applicant-name">
+                                                            <div className="avatar">{applicant.name.charAt(0).toUpperCase()}</div>
+                                                            <span>{applicant.name}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div className="contact-info">
+                                                            <span className="contact-item">
+                                                                <Mail size={14} />
+                                                                {applicant.email}
+                                                            </span>
+                                                            {applicant.phone && (
+                                                                <span className="contact-item">
+                                                                    <Phone size={14} />
+                                                                    {applicant.phone}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <span className="applied-date">
+                                                            <Calendar size={14} />
+                                                            {formatDate(applicant.applied_at)}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span className={`status-badge ${getStatusBadgeClass(applicant.test_status)}`}>
+                                                            {applicant.test_status === 'completed' ? 'Completed' :
+                                                             applicant.test_status === 'in_progress' ? 'In Progress' : 'Not Started'}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {applicant.test_status === 'completed' ? (
+                                                            <div className="score-info">
+                                                                <span className={`score ${(applicant.test_percentage || 0) >= 50 ? 'passed' : 'failed'}`}>
+                                                                    {applicant.test_percentage?.toFixed(1)}%
+                                                                </span>
+                                                                <span className="score-label">
+                                                                    ({(applicant.test_percentage || 0) >= 50 ? 'Passed' : 'Failed'})
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="score-na">—</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn-secondary" onClick={closeApplicantsModal}>
+                                Close
                             </button>
                         </div>
                     </div>

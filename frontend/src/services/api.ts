@@ -260,8 +260,8 @@ export const adminApiService = {
     },
 
     // Candidates
-    getCandidates: async (status?: string) => {
-        const response = await adminApi.get('/candidates', { params: { status } });
+    getCandidates: async (status?: string, search?: string) => {
+        const response = await adminApi.get('/candidates', { params: { status, search } });
         return response.data;
     },
     approveCandidate: async (candidateId: number) => {
@@ -319,6 +319,10 @@ export const adminApiService = {
     // Jobs
     getJobs: async (includeInactive?: boolean) => {
         const response = await adminApi.get('/jobs', { params: { include_inactive: includeInactive } });
+        return response.data;
+    },
+    getJobApplicants: async (jobId: number) => {
+        const response = await adminApi.get(`/jobs/${jobId}/applicants`);
         return response.data;
     },
     createJob: async (data: {
